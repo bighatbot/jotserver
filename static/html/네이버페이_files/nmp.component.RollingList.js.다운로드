@@ -1,0 +1,357 @@
+
+nmp.component.RollingList = jindo.$Class({
+	_htElementSelector : {
+		"list" : "> ._list",
+		"items" : "> ._list > li"
+	},
+	_htInstance : {},
+	_aItemList : [],
+	_nTotalCount : 0,
+	_nCurrentIndex : 0,
+	_aSelectedElementList : null,
+    _welList : null,
+
+    /**
+     * 초기화 함수
+     * @param htOption
+     */
+	$init : function(htOption){
+		this._htInstance = {};
+		this.option(htOption);
+        this._welList = this.option("sClassPrefix") ? jindo.$Element(this._getElement("root").query("> ." + this.option("sClassPrefix") + "list")) : this._getElement("list");
+		this._attachEvent();
+		this._htInstance["timer"] = new jindo.Timer();
+		this._setItemIndex();
+		this._createRollingInstance();
+		if(this.option("nRollingInterval")){
+			this.startRolling();
+		}
+		setTimeout(jindo.$Fn(this.moveTo, this).bind(0), 0);
+	},
+
+    /**
+     * 아이템 항목들에 아이템 인덱스를 설정한다.
+     */
+	_setItemIndex : function(){
+		var aItemList = this.option("sClassPrefix") ? this._welList.queryAll("> ." + this.option("sClassPrefix") + "item") : this._getElementList("items", true);
+		for(var i=0; i<aItemList.length; i++){
+			jindo.$Element(aItemList[i]).addClass("_item").attr("itemIndex", i);
+		}
+		this._nTotalCount = aItemList.length;
+	},
+
+    /**
+     * CircularRolling 컴포넌트의 인스턴스를 생성하고 이벤트를 등록한다.
+     */
+	_createRollingInstance : function(){
+		var htInstanceOption = {
+			"nFPS" : this.option("nFPS") || 30,
+			"nDuration" : this.option("nDuration") || 500,
+			"sDirection" : this.option("sDirection") || "horizontal",
+			"fEffect" : this.option("fEffect") || jindo.Effect.linear,
+            "sClassPrefix" : this.option("sClassPrefix")
+		};
+		
+		if(this.option("nRollingInterval") || this.option("bCircularRolling")){
+			this._htInstance["rolling"] = new jindo.CircularRolling(this._getElement("root", true), htInstanceOption);
+			this._htInstance["rolling"].moveBy = function(n) {
+				if (this.isMoving()) {
+					return false;
+				}
+				this._setStartPosition(this.getIndex(), n);
+				var nTarget = this.getIndex() + n;
+				if (!this._move(nTarget)) {
+					return false;
+				}
+				return true;
+			};
+		}else{
+			this._htInstance["rolling"] = new jindo.Rolling(this._getElement("root", true), htInstanceOption);
+		}
+		this._htInstance["rolling"].attach("beforeMove", jindo.$Fn(this._onBeforeMove, this).bind());
+		this._htInstance["rolling"].attach("afterMove", jindo.$Fn(this._onAfterMove, this).bind());
+		this._aItemList = this._htInstance["rolling"].getItems();
+
+    /**
+     * 이벤트를 등록한다.
+     */
+		var aItemAnchorElementList = jindo.$ElementList(this._welList.queryAll("._item a"));
+		for(var i=0; i< aItemAnchorElementList.length(); i++){			
+			this._attachEventHandler(aItemAnchorElementList.get(i), "focus",$Fn(this._onFocus, this).bind());
+			this._attachEventHandler(aItemAnchorElementList.get(i), "blur",$Fn(this._onBlur, this).bind());
+		}
+	},
+		
+	_attachEvent : function(){
+		this._attachEventHandler(this._getElement("root"), "mouseenter", jindo.$Fn(this.pauseRolling, this).bind());
+		this._attachEventHandler(this._getElement("root"), "mouseleave", jindo.$Fn(this.resumeRolling, this).bind());
+		this._attachEventHandler(this._welList, "mouseover", jindo.$Fn(this._onMouseOver, this).bind());
+	},
+
+    /**
+     * 롤링 되기 전에 발생하는 beforeMove 이벤트 핸들러
+     *
+     * @param weBeforeMove
+     */
+	_onBeforeMove : function(weBeforeMove){
+		var nBeforeIndex = this._htInstance["rolling"].getIndex() % this._nTotalCount;
+		var nIndex = weBeforeMove.nIndex % this._nTotalCount;
+
+		var bResult = this.fireEvent("beforeMove", {
+			"nBeforeIndex" : nBeforeIndex,
+			"nIndex" : nIndex,
+			"nTotalCount" : this._nTotalCount
+		});
+		
+		if(!bResult){
+			weBeforeMove.stop();
+			this.stopRolling();
+		}
+	},
+
+    /**
+     * 롤링이 완료된 후에 발생하는 afterMove 이벤트 핸들러
+     *
+     * @param weAfterMove
+     */
+	_onAfterMove : function(weAfterMove){
+		var nIndex = weAfterMove.nIndex % this._nTotalCount;
+		var bResult = this.fireEvent("afterMove", {
+			"nIndex" : nIndex,
+			"nTotalCount" : this._nTotalCount
+		});
+		
+		if(!bResult){
+			this.stopRolling();
+		}
+	},
+
+    /**
+     * mouseover 이벤트 핸들러
+     *
+     * @param weMouseOver
+     */
+	_onMouseOver : function(weMouseOver){
+		var welTarget = jindo.$Element(weMouseOver.element);
+
+        // 오버된 영역이 아이템 영역인 경우, 롤링을 중지시키고 선택 처리한다.
+		if(welTarget.hasClass("_item")){
+			this.pauseRolling();
+			var nIndex = Number(welTarget.attr("itemIndex"));
+			if(!this.option("nRollingCount") || this.option("nRollingCount") == this._htInstance["rolling"].getDisplayedItemCount()){
+				this._nCurrentIndex = nIndex;
+			}
+			this._select(nIndex);
+		}
+	},
+	
+	_onFocus : function(weFocus){
+		var aWelParents = jindo.$Element(weFocus.element).parent(
+				function(v){
+			        return v.hasClass("_item");
+			    });
+		
+		if(aWelParents.length > 0){
+			var welTarget = aWelParents[0];
+			if(welTarget){
+				this.pauseRolling();
+				var nIndex = Number(welTarget.attr("itemIndex"));
+				if(!this.option("nRollingCount") || this.option("nRollingCount") == this._htInstance["rolling"].getDisplayedItemCount()){
+					this._nCurrentIndex = nIndex;
+				}
+				this._select(nIndex);
+			}			
+		}
+	},
+	
+	_onBlur : function(weBlur){
+		this.resumeRolling(); 
+	},
+	
+	_rolling : function(sType, nValue, bUninterrupt){
+		this._htInstance["rolling"].getTransition().abort();
+		var nDisplayCount = this.option("nRollingCount") || this._htInstance["rolling"].getDisplayedItemCount();
+		var nCurrentIndex = this._htInstance["rolling"].getIndex();
+		var bResult = true;
+		var nIndex;
+		var bRolling = this._htInstance["timer"].isRunning();
+		
+		if(nValue != null){
+			if(bRolling){
+				this.stopRolling();
+			}
+			
+			if(sType == "moveBy"){
+				var nStep = nValue;
+				var nMoveIndex = 0;
+				nIndex = this._nCurrentIndex + nValue;
+				nIndex = nIndex >= this._nTotalCount ? nIndex - this._nTotalCount : (nIndex < 0 ? nIndex + this._nTotalCount : nIndex);
+				
+				if(nValue > 0){
+					if(nIndex < nCurrentIndex){
+						nMoveIndex = Math.abs(Math.floor((nIndex + this._nTotalCount - nCurrentIndex) / nDisplayCount) * nDisplayCount);
+					}else{
+						nMoveIndex = Math.floor((nIndex - nCurrentIndex) / nDisplayCount) * nDisplayCount;
+					}
+				}else if(nValue < 0){
+					nCurrentIndex = nCurrentIndex > this._nTotalCount ? nCurrentIndex - this._nTotalCount : nCurrentIndex;					
+					if(nIndex < nCurrentIndex){
+						nMoveIndex = Math.ceil(Math.abs(nIndex - nCurrentIndex) / nDisplayCount) * -nDisplayCount;
+					}else{
+						nMoveIndex = Math.ceil((this._nTotalCount + nCurrentIndex - nIndex) / nDisplayCount) * -nDisplayCount;
+					}
+				}
+
+				bResult = this._select(nIndex);
+				if(bResult){
+					this._nCurrentIndex = nIndex;
+					if(Math.abs(nStep) >= nDisplayCount){
+						this._htInstance["rolling"].moveBy(nStep);
+					}else if(nStep > 0 && nMoveIndex == nDisplayCount){
+						this._htInstance["rolling"].moveBy(nDisplayCount);
+					}else if(nStep < 0 && nMoveIndex == -nDisplayCount){
+						this._htInstance["rolling"].moveBy(-nDisplayCount);
+					}
+				}
+			}else if(sType == "moveTo"){
+				nIndex = nValue >= this._nTotalCount ? nValue - this._nTotalCount : (nValue < 0 ? nValue + this._nTotalCount : nValue);
+				bResult = this._select(nIndex);
+				if(bResult){
+					if(bUninterrupt){
+						this._htInstance["rolling"].moveTo(nValue);
+					}else{
+						var nDistanceForward = this._nCurrentIndex < nValue ? nValue - this._nCurrentIndex : nValue + this._nTotalCount - this._nCurrentIndex;
+						var nDistanceBackward = this._nCurrentIndex < nValue ? this._nCurrentIndex + this._nTotalCount - nValue : this._nCurrentIndex - nValue;
+						nStep = nDistanceForward <= nDistanceBackward ? nDistanceForward : -nDistanceBackward;
+					
+						if(nStep < this._nTotalCount){
+							this._htInstance["rolling"].moveBy(nStep);
+						}
+					}
+					this._nCurrentIndex = nIndex;
+				}
+			}else if(sType == "movePage"){
+				nIndex = nCurrentIndex + nDisplayCount * nValue;
+				nIndex = nIndex >= this._nTotalCount ? nIndex - this._nTotalCount : (nIndex < 0 ? nIndex + this._nTotalCount : nIndex);
+				bResult = this._select(nIndex);
+				if(bResult){
+					this._nCurrentIndex = nIndex;
+					this._htInstance["rolling"].moveBy(nDisplayCount * nValue);
+				}
+			}
+
+			if(bResult && bRolling){
+				this.startRolling();
+			}
+		}else{
+			nCurrentIndex = nCurrentIndex % this._nTotalCount;
+			var nReferenceIndex = nDisplayCount + (nCurrentIndex > this._nTotalCount ? nCurrentIndex - this._nTotalCount : nCurrentIndex);
+			nIndex = this._nCurrentIndex == this._nTotalCount - 1 ? 0 : this._nCurrentIndex + 1;
+			var nMoveCount = nCurrentIndex > nIndex ? nIndex + this._nTotalCount - nCurrentIndex : nIndex - nCurrentIndex;
+			
+			if(this._select(nIndex)){
+				this._nCurrentIndex = nIndex;
+				if(this._nCurrentIndex == nReferenceIndex){
+					this._htInstance["rolling"].moveBy(nDisplayCount);
+				}else if(nReferenceIndex >= this._nTotalCount && nReferenceIndex - this._nTotalCount == this._nCurrentIndex){
+					this._htInstance["rolling"].moveBy(nDisplayCount);
+				}else if(nMoveCount > nDisplayCount){
+					this._htInstance["rolling"].moveBy(nMoveCount);
+				}
+			}
+		}
+		
+		return true;
+	},
+
+	_select : function(nIndex){
+		var aElementList = jindo.$ElementList(this._welList.queryAll("._item[itemIndex="+nIndex+"]"));
+		var bResult = this.fireEvent("select", {
+			"elItem" : this._aItemList[nIndex],
+			"nIndex" : nIndex,
+			"nTotalCount" : this._nTotalCount
+		});
+		
+		if(bResult){
+			if(this.option("sClassName")){
+				if(this._aSelectedElementList){
+					this._aSelectedElementList.removeClass(this.option("sClassName"));
+				}
+				this._aSelectedElementList = aElementList.addClass(this.option("sClassName"));
+			}
+		}
+		
+		return bResult;
+	},
+	
+	moveNext : function(){
+		return this.moveBy(1);
+	},
+	
+	movePrevious : function(){
+		return this.moveBy(-1);
+	},
+	
+	moveTo : function(nIndex, bUninterrupt){
+		if(nIndex > -1 && nIndex < this._nTotalCount){
+			return this._rolling("moveTo", nIndex, bUninterrupt);
+		}else{
+			return false;
+		}
+	},
+	
+	moveBy : function(nStep){
+		if(this._htInstance["rolling"].isMoving()){
+			return false;
+		}
+		return this._rolling("moveBy", nStep);
+	},
+	
+	moveNextPage : function(){
+		this._rolling("movePage", 1);
+	},
+	
+	movePreviousPage : function(){
+		this._rolling("movePage", -1);
+	},
+	
+	startRolling : function(nRollingInterval){
+		if(nRollingInterval){
+			this.option("nRollingInterval", nRollingInterval);
+		}
+		
+		if(!this.isRolling() && this.option("nRollingInterval")){
+			this._htInstance["timer"].start(jindo.$Fn(this._rolling, this).bind(), this.option("nRollingInterval"));
+		}
+	},
+	
+	stopRolling : function(){
+		this._htInstance["timer"].abort();
+	},
+	
+	pauseRolling : function(){
+		this._htInstance["timer"].pause();
+	},
+	
+	resumeRolling : function(){
+		this._htInstance["timer"].resume();
+	},
+	
+	refresh : function(){
+		this._htInstance["rolling"].refresh();
+		this._setItemIndex();
+	},
+	
+	isRolling : function(){
+		return this._htInstance["timer"].isRunning();
+	},
+	
+	isMoving : function(){
+		return this._htInstance["rolling"].isMoving();
+	},
+	
+	getIndex : function(){
+		return this._nCurrentIndex;
+	}
+}).extend(nmp.component.Base);
+

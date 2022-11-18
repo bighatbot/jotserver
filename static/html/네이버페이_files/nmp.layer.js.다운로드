@@ -1,0 +1,559 @@
+/**
+ * 레이어 처리용 공통 모듈
+ *
+ * @namespace
+ * @name nmp.layer
+ * @author EC전시서비스개발팀 윤흥기
+ */
+nmp.createModule("nmp.layer", {
+	_htEventData : {},
+	_htInstance : {},
+	_aLayerList : [],
+	_nBaseZIndex : 10000,
+	_htLayerOption : {},
+	_htDimmedLayer : {},
+	_aHideList : [],
+	_sHighestStepKey : "",
+
+	/**
+	 * 모듈 초기화 함수
+	 */
+	initialize : function(){
+		nmp.checkClass("jindo.LayerPosition", "jindo.LayerManager", "jindo.Timer");
+		this._initEvent();
+	},
+
+	_initEvent : function(){
+		nmp.event_delegator.attach(document.body, "click", this, true);
+	},
+
+	/**
+	 * 레이어 매니저 컴포넌트에서 발생하는 beforeAdjust 이벤트의 핸들러
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {$Event} weBeforeAdjust beforeAdjust 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_onBeforeAdjust : function(sKey, weBeforeAdjust){
+		// 사용자가 등록한 콜백함수가 있으면 실행한다.
+		this._executeCallback(sKey, "fBeforeAdjustCallback", weBeforeAdjust);
+	},
+
+	/**
+	 * 레이어 포지션 컴포넌트에서 발생하는 adjust 이벤트의 핸들러
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {$Event} weAdjust adjust 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_onAdjust : function(sKey, weAdjust){
+		// 사용자가 등록한 콜백함수가 있으면 실행한다.
+		this._executeCallback(sKey, "fAdjustCallback", weAdjust);
+	},
+
+	/**
+	 * 레이어 매니저 컴포넌트에서 발생하는 beforeShow 이벤트의 핸들러
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {$Event} weBeforeShow BeforeShow 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_onBeforeShow : function(sKey, weBeforeShow){
+		// 사용자가 등록한 콜백함수가 있으면 실행한다.
+		this._executeCallback(sKey, "fBeforeShowCallback", weBeforeShow);
+	},
+
+	/**
+	 * 레이어 매니저 컴포넌트에서 발생하는 show 이벤트의 핸들러
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {$Event} weShow show 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_onShow : function(sKey, weShow){
+		// 사용자가 등록한 콜백함수가 있으면 실행한다.
+		this._executeCallback(sKey, "fShowCallback", weShow);
+	},
+
+	/**
+	 * 레이어 매니저 컴포넌트에서 발생하는 beforeHide 이벤트의 핸들러
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {$Event} weBeforeHide beforeHide 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_onBeforeHide : function(sKey, weBeforeHide){
+		//console.log("_onBeforeHide", sKey, weBeforeHide);
+		// 사용자가 등록한 콜백함수가 있으면 실행한다.
+		this._executeCallback(sKey, "fBeforeHideCallback", weBeforeHide);
+
+		//console.log("before hide callback : ",sKey + " : " +this._aLayerList[this._aLayerList.length - 1]+ " : " , this._aLayerList)
+		if(this._htLayerOption[sKey].bUseStep && !jindo.$A(this._aHideList).has(sKey) && this._aLayerList[this._aLayerList.length - 1] != sKey){
+			weBeforeHide.stop();
+		}else if(this._getOption("bKeyActionUse")){
+			this._beforeHideFocusOn(sKey);
+		}
+	},
+
+	/**
+	 * 레이어 매니저 컴포넌트에서 발생하는 hide 이벤트의 핸들러
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {$Event} weHide hide 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_onHide : function(sKey, weHide){
+		var htOption = this._htLayerOption[sKey];
+
+		// 사용자가 등록한 콜백함수가 있으면 실행한다.
+		this._executeCallback(sKey, "fHideCallback", weHide);
+
+		// 링크된 엘리먼트들의 연결을 해제한다.
+		if(htOption.aLink && htOption.aLink.length){
+			for(var i=0; i<htOption.aLink.length; i++){
+				this._getLayerManager(sKey).unlink(htOption.aLink[i]);
+			}
+		}
+
+		// 딤드 레이어를 사용한 경우, 닫는다.
+		if(htOption.bUseDimmedLayer){
+			this._hideDimmedLayer(sKey);
+		}
+
+		// 이벤트 핸들러를 등록한 경우 해제한다.
+		if(this._htEventData[sKey]){
+			this._htEventData[sKey].detach(htOption.elTargetLayer, "click");
+		}
+
+		// 웹접근성을 위해 추가된 이벤트 해제
+		if(this._htEventData["esc_key_check_" + sKey]){
+			this._detachEventHandler(this._htEventData["esc_key_check_"+sKey]);
+		}
+		if(this._htEventData["tab_key_check_" + sKey]){
+			this._detachEventHandler(this._htEventData["tab_key_check_"+sKey]);
+		}
+
+		// 레이어 목록에서 마지막 항목을 제거한다.
+		jindo.$Fn(function(){
+			this._hideDimmedLayer(sKey);
+			this._aLayerList = jindo.$A(this._aLayerList).refuse(sKey).$value();
+			this._aHideList = jindo.$A(this._aHideList).refuse(sKey).$value();
+			// TODO 인스턴스에서 이벤트 해제 및 인스턴스 삭제 처리
+		}, this).delay(0);
+	},
+
+	/**
+	 * 레이어 매니저 컴포넌트에서 발생하는 ignore 이벤트의 핸들러
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {$Event} weIgnore ignore 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_onIgnore : function(sKey, weIgnore){
+		return this._executeCallback(sKey, "fIgnoreCallback", weIgnore);
+	},
+
+	/**
+	 * sKey에 해당하는 레이어 뒤에 딤드 레이어를 보여준다.
+	 * - 딤드 레이어는 브라우저 화면을 전부 가리며, 대상이 되는 레이어의 바로 뒤에 위치하며 해당 레이어와 링크가 되기 때문에
+	 *   sCheckEvent가 레이어 외부에서 발생해도 닫히지 않는다.
+	 *   그렇기 때문에 해당 레이어는 내부에서 X버튼을 통해 nmp.layer.hide()함수를 호출해서만 닫을 수 있다.
+	 *
+	 * @param {String} sKey 레이어 키
+	 */
+	_showDimmedLayer : function(sKey){
+		var bIE6 = jindo.$Agent().navigator().ie && jindo.$Agent().navigator().version == 6;
+
+		// sKey에 해당하는 딤드 레이어 엘리먼트가 없는 경우 생성한다.
+		if(!this._htDimmedLayer[sKey]){
+			var nZIndex = this._getZIndex(sKey, true);
+			if(bIE6){
+				var htScrollSize = jindo.$Document().scrollSize();
+				this._htDimmedLayer[sKey] = jindo.$Element("<div style='position:absolute;z-index:" + nZIndex + ";top:0px;left:0px;width:" + htScrollSize.width + "px;height:" + htScrollSize.height + "px;background:#000;opacity:0.3;filter:alpha(opacity=30)'><!--[if lte IE 6.5]><iframe onclick='return false;' style='display:none;display/**/:block;position:absolute;top:0;left:0;z-index:-1;filter:mask();'></iframe><![endif]--></div>");
+			}else{
+				this._htDimmedLayer[sKey] = jindo.$Element("<div style='position:fixed;z-index:" + nZIndex + ";top:0px;left:0px;width:100%;height:100%;background:#000;opacity:0.3;filter:alpha(opacity=30)'><!--[if lte IE 6.5]><iframe onclick='return false;' style='display:none;display/**/:block;position:absolute;top:0;left:0;z-index:-1;filter:mask();'></iframe><![endif]--></div>");
+			}
+			jindo.$Element(this._htLayerOption[sKey].elTargetLayer).before(this._htDimmedLayer[sKey]);
+		}
+
+		// IE6인 경우 리사이징 시에 딤드 레이어의 크기를 조정할 수 있도록 리사이징 이벤트 핸들러를 등록한다.
+		if(bIE6){
+			this._htEventData["resize_" + sKey] = this._attachEventHandler(window, "resize", jindo.$Fn(this._setDimmedLayerSize, this).bind(sKey));
+		}
+
+		this._htDimmedLayer[sKey].show();
+		this._getLayerManager(sKey).link(this._htDimmedLayer[sKey]);
+	},
+
+	/**
+	 * 보여진 딤드레이어를 감춘다.
+	 *
+	 * @param {String} sKey 레이어 키
+	 */
+	_hideDimmedLayer : function(sKey){
+		if(this._htDimmedLayer[sKey]){
+			this._htDimmedLayer[sKey].hide();
+			this._getLayerManager(sKey).unlink(this._htDimmedLayer[sKey]);
+			if(this._htEventData["resize_" + sKey]){
+				this._detachEventHandler(this._htEventData["resize_" + sKey]);
+			}
+		}
+	},
+
+	/**
+	 * IE 6에서 리사이징 이벤트 발생 시, 딤드 레이어의 크기를 브라우저에 맞춰 변경한다.
+	 *
+	 * @param {String} sKey 레이어 키
+	 */
+	_setDimmedLayerSize : function(sKey){
+		this._htDimmedLayer[sKey].width(jindo.$Document().clientSize().width);
+		jindo.$Fn(function(){
+			var htScrollSize = jindo.$Document().scrollSize();
+			this._htDimmedLayer[sKey].width(htScrollSize.width).height(htScrollSize.height);
+			jindo.$Element(this._htDimmedLayer[sKey].query("iframe")).width(htScrollSize.width).height(htScrollSize.height);
+		}, this).delay(0);
+	},
+
+	/**
+	 * sKey에 해당하는 레이어가 사용할 z-index 값을 계산하여 리턴한다.
+	 * - z-index 값은 레이어가 다단계로 보여질 때, 보여진 순서에 따라 100씩 차이를 두고 계산하여 리턴한다.
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {Boolean} bDimmed 딤드 레이어 사용 여부
+	 * @returns {Number} 계산된 z-index 값
+	 */
+	_getZIndex : function(sKey, bDimmed){
+		for(var i=0, nStep=0; i<this._aLayerList.length; i++){
+			if(this._aLayerList[i] == sKey){
+				nStep = i;
+				break;
+			}
+		}
+		return this._nBaseZIndex + nStep * 100 - (bDimmed ? 50 : 0);
+	},
+
+	/**
+	 * 현재 보여지고 있는 레이어들의 z-index를 보여준 순서에 따라 재정렬한다.
+	 */
+	_resetZIndex : function(){
+		var htOption = {}, nZIndex = 1;
+		for(var i=0, nStep=0; i<this._aLayerList.length; i++){
+			htOption = this._htLayerOption[this._aLayerList[i]];
+			nZIndex = htOption.nZIndex || this._nBaseZIndex + i * 100 - (htOption.bUseDimmedLayer ? 50 : 0);
+			jindo.$Element(htOption.elTargetLayer).css("zIndex", nZIndex);
+		}
+	},
+
+	/**
+	 * 컴포넌트들의 이벤트가 발생한 경우, 그에 해당하는 콜백함수가 옵션 객체에 있는지 검사하여 실행한다.
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {String} sCallbackFunction 발생한 이벤트의 콜백함수 이름
+	 * @param {$Event} weCustom 이벤트 객체
+	 * @returns {Boolean} 콜백함수의 실행 결과
+	 */
+	_executeCallback : function(sKey, sCallbackFunction, weCustom){
+		var htOption = this._htLayerOption[sKey];
+		if(sKey && sCallbackFunction && htOption){
+			if(htOption[sCallbackFunction] && typeof(htOption[sCallbackFunction]) == "function"){
+				return htOption[sCallbackFunction](weCustom);
+			}
+		}
+		return true;
+	},
+
+	/**
+	 * 보여줄 레이어 엘리먼트를 구분 지을 고유한 키를 생성하여 리턴한다.
+	 * - 레이어 엘리먼트가 __layer_key 값을 가지고 있을 경우, 해당 값을 고유 키로 사용한다.
+	 *
+	 * @param {HTMLElement} elTargetLayer 보여줄 레이어 엘리먼트
+	 * @returns {String} 레이어의 고유 키
+	 */
+	_getLayerKey : function(elTargetLayer){
+		var welTargetLayer = jindo.$Element(elTargetLayer), sKey = "";
+
+		if(welTargetLayer.attr("__layer_key")){
+			sKey = welTargetLayer.attr("__layer_key");
+		}else{
+			sKey = String(parseInt(Math.random() * 1000000000, 10));
+			welTargetLayer.attr("__layer_key", sKey);
+		}
+
+		return sKey;
+	},
+
+	/**
+	 * 레이어 키에 따라 해당 레이어가 사용할 레이어 매니저 컴포넌트의 인스턴스를 리턴한다.
+	 * - 레이어 키에 해당하는 인스턴스가 존재하지 않는 경우 생성하여 리턴하며, 존재하는 경우 바로 리턴한다.
+	 *
+	 * @param {String} sKey 레이어를 구분하는 고유 키값
+	 * @returns {Object} 레이어 매니저 컴포넌트의 인스턴스
+	 */
+	_getLayerManager : function(sKey){
+		var oInstance = this._htInstance["layer_manager_" + sKey];
+		if(!oInstance){
+			var htOption = this._htLayerOption[sKey];
+			oInstance = this._htInstance["layer_manager_" + sKey] = new jindo.LayerManager(htOption.elTargetLayer, htOption);
+			if(htOption.fBeforeShowCallback){
+				oInstance.attach("beforeShow", jindo.$Fn(this._onBeforeShow, this).bind(sKey));
+			}
+			if(htOption.fShowCallback){
+				oInstance.attach("show", jindo.$Fn(this._onShow, this).bind(sKey));
+			}
+			if(htOption.fIgnoreCallback){
+				oInstance.attach("ignore", jindo.$Fn(this._onIgnore, this).bind(sKey));
+			}
+			oInstance.attach({
+				"beforeHide" : jindo.$Fn(this._onBeforeHide, this).bind(sKey),
+				"hide" : jindo.$Fn(this._onHide, this).bind(sKey)
+			});
+		}
+		return oInstance;
+	},
+
+	/**
+	 * 레이어 키에 따라 해당 레이어가 사용할 레이어 포지션 컴포넌트의 인스턴스를 리턴한다.
+	 * - 레이어 키에 해당하는 인스턴스가 존재하지 않는 경우 생성하여 리턴하며, 존재하는 경우 바로 리턴한다.
+	 *
+	 * @param {String} sKey 레이어를 구분하는 고유 키값
+	 * @returns {Object} 레이어 포지션 컴포넌트의 인스턴스
+	 */
+	_getLayerPosition : function(sKey){
+		var oInstance = this._htInstance["layer_position_" + sKey];
+		if(!oInstance){
+			var htOption = this._htLayerOption[sKey];
+			oInstance = this._htInstance["layer_position_" + sKey] = new jindo.LayerPosition(htOption.elBaseElement, htOption.elTargetLayer, htOption);
+			if(htOption.fBeforeAdjustCallback){
+				oInstance.attach("beforeAdjust", jindo.$Fn(this._onBeforeAdjust, this).bind(sKey));
+			}
+			if(htOption.fAdjustCallback){
+				oInstance.attach("adjust" , jindo.$Fn(this._onAdjust, this).bind(sKey));
+			}
+		}
+		return oInstance;
+	},
+
+	/**
+	 * 레이어 옵션 객체의 기본 값을 설정하고, show 함수에서 넘겨받은 옵션 객체와 합쳐서 리턴한다.
+	 *
+	 * @param {String} sKey 레이어 키
+	 * @param {HTMLElement} elTargetLayer 보여줄 레이어 엘리먼트
+	 * @param {HTMLElement} elBaseElement 레이어를 보여줄 때 위치의 기준이 될 엘리먼트
+	 * @param {HashTable} htLayerOption show 함수에 전달된 레이어 옵션 객체
+	 * @returns {HashTable} 옵션 객체
+	 */
+	_setLayerOption : function(sKey, elTargetLayer, elBaseElement, htLayerOption){
+		var htOption = {
+			"bUseStep" : false,
+			"elTargetLayer" : elTargetLayer,
+			"elBaseElement" : elBaseElement,
+			"aLink" : [],
+			"bExceptLinkElBase" : false,
+			"nShowDelay" : -1,
+			"nHideDelay" : -1
+		};
+
+		if(htLayerOption) {
+			for(var x in htLayerOption){
+				htOption[x] = htLayerOption[x];
+			}
+		}
+
+		htOption.aLink = htOption.aLink.concat(htOption.bExceptLinkElBase ? [elTargetLayer] : [elTargetLayer, elBaseElement]);
+		this._htLayerOption[sKey] = htOption;
+
+		return htOption;
+	},
+
+	/**
+	 * welTargetLayer를 welBaseElement 기준으로 보여준다.
+	 * - 레이어가 열린 경우 레이어 옵션 객체의 sCheckEvent가 welTargetLayer 외부에서 발생한 경우 닫히게 된다.
+	 *   sCheckEvent를 지정하지 않는 경우 click 가 기본이 된다.
+	 * - 레이어 옵션 객체에는 레이어 매니저 컴포넌트 및 레이어 포지션 컴포넌트의 옵션을 그대로 지정하여 사용할 수 있으며,
+	 *   두 컴포넌트에서 제공하는 이벤트도 모두 설정할 수 있다.
+	 * - bUseDimmedLayer 옵션의 설정을 통해 레이어를 보여줄 때 딤드레이어를 자동으로 보여줄 수 있으며,
+	 *   브라우저가 리사이징될 때 딤드 레이어의 크기를 자동으로 조절해 준다.
+	 * - bUseStep 옵션의 설정을 통해 레이어를 다단계로 보여줄 수 있으며, sCheckEvent 발생에 의해 차례대로 닫히게 된다.
+	 * - bShowOnly 옵션의 설정을 통해 레이어의 위치를 변경하지 않고, 단순히 레이어의 display만 변경하여 보여줄 수 있다.
+	 *
+	 * @param {$Element} welTargetLayer 보여줄 레이어 엘리먼트
+	 * @param {$Element} welBaseElement 레이어를 보여줄 때 위치의 기준이 될 엘리먼트
+	 * @param {HashTable} htLayerOption 레이어 매니저 및 레이어 포지션 컴포넌트의 옵션 객체
+	 * 	sCheckEvent, nCheckDelay, nShowDelay, nHideDelay, aLinkElement, (레이어 매니저 컴포넌트 옵션)
+	 * 	sPosition, sAlign, sValign, nTop, nLeft, bAuto, (레이어 포지션 컴포넌트 옵션)
+	 * 	bShowOnly, nZIndex, bUseDimmedLayer, bUseStep (기타 옵션)
+	 * 	fBeforeHide, fHide, fBeforeShow, fShow, fIgnore (레이어 매니저 컴포넌트의 지원 이벤트)
+	 * 	fBeforeAdjust, fAdjust (레이어 포지션 컴포넌트의 지원 이벤트)
+	 * @param {Object} oContext show 함수를 호출하는 모듈의 컨텍스트 객체, oContext가 지정될 경우 event_delegator를 통해 click 이벤트를 등록한다.
+	 */
+	show : function(welTargetLayer, welBaseElement, htLayerOption, oContext){
+		var elTargetLayer = jindo.$Element(welTargetLayer).$value();
+		var elBaseElement = jindo.$Element(welBaseElement).$value();
+		var sKey = htLayerOption && htLayerOption.bUseStep ? this._getLayerKey(elTargetLayer) : this._getLayerKey(elTargetLayer);
+		var htOption = this._setLayerOption(sKey, elTargetLayer, elBaseElement, htLayerOption);
+		var bDuplicateShow = (this._aLayerList && this._aLayerList.length == 1 && this._aLayerList[0] == sKey && jindo.$Element(elTargetLayer).visible());
+
+		if(htOption.bUseStep){
+			this._aLayerList = jindo.$A(this._aLayerList).refuse(sKey).$value();
+			this._aLayerList.push(sKey);
+		// 현재 show 상태인 경우 다시 접근하려 할때 방어 코드 추가
+		}else if(bDuplicateShow){
+			jindo.$Element(elTargetLayer).hide();
+		}else{
+			this.hide();
+			this._aLayerList = [sKey];
+		}
+
+		this._resetZIndex();
+
+		this._getLayerManager(sKey).setLayer(elTargetLayer).setLinks(htOption.aLink).show(htOption.nShowDelay || -1);
+
+		if(!htOption.bShowOnly){
+			this._getLayerPosition(sKey).setLayer(elTargetLayer).setElement(elBaseElement).option(htOption).setPosition();
+		}
+
+		if(htOption.bShowDimmedLayer){
+			this._showDimmedLayer(sKey);
+		}
+
+		if(!bDuplicateShow && oContext){
+			this._htEventData[sKey] = nmp.event_delegator.attach(elTargetLayer, "click", oContext);
+		}
+
+		this._focusInLayer(elTargetLayer);
+	},
+
+	_beforeHideFocusOn : function(sKey){
+		var htOption = this._htLayerOption[sKey],
+			elBase,
+			welBase;
+
+		if(htOption.elFocusElement){
+			elBase = htOption.elFocusElement;
+		}else{
+			elBase = htOption.elBaseElement;
+		}
+
+		welBase = jindo.$Element(elBase);
+
+		if(!elBase || !welBase || !welBase.visible()){
+			return;
+		}
+
+		//design select box
+		if(welBase.hasClass("selectbox-box")){
+			var selectbox = welBase.parent().query("select.selectbox-source");
+			if(selectbox){
+				selectbox.focus();
+			}
+		}else if(this._isFocusable(welBase)){
+			try {
+				elBase.focus();
+			} catch (e) {}
+		}
+		//console.log("focus to : ", elBase, document.activeElement)
+	},
+
+	_isFocusable : function(welBase){
+		var tag = welBase.tag;
+		if(!tag) {
+			return;
+		}
+		//IE는 Object로 인식하는 문제때문에, Tag를 check하는 방식으로 변경
+		return ("a,input,select,textarea".indexOf(tag) > -1);
+	},
+
+	/**
+	 * 보여진 레이어를 닫는다.
+	 * - 파라미터로 $Element 객체를 전달할 경우 해당 레이어만 닫는다.
+	 * - 파라미터 없이 호출하는 경우, nmp.layer 모듈에 의해 열린 모든 레이어가 닫힌다.
+	 *
+	 * @param {$Element} [welTargetLayer] 레이어 엘리먼트 객체 ($Element와 HTMLElement 모두 가능)
+	 */
+	hide : function(welTargetLayer){
+		var elTargetLayer = welTargetLayer ? jindo.$Element(welTargetLayer).$value() : null;
+		for(var i=0; i<this._aLayerList.length; i++){
+			if(elTargetLayer){
+				if(this._htLayerOption[this._aLayerList[i]].elTargetLayer == elTargetLayer){
+					this._aHideList.push(this._aLayerList[i]);
+					this._getLayerManager(this._aLayerList[i]).hide();
+				}
+			}else{
+				this._aHideList.push(this._aLayerList[i]);
+				this._getLayerManager(this._aLayerList[i]).hide();
+			}
+		}
+	},
+	
+	rePositioning : function(welTargetLayer, htPosition){
+		welTargetLayer = jindo.$Element(welTargetLayer);
+		if(welTargetLayer && welTargetLayer.attr("__layer_key")){
+			this._getLayerPosition(welTargetLayer.attr("__layer_key")).setPosition(htPosition);
+		}
+	},
+
+	showAfterLoad : function(sTargetLayerURI, elBaseElement, htLayerOption, oContext) {
+		var sTargetLayerClass = sTargetLayerURI.replace(/(^.*\/)/, ""),
+			elTargetLayer = jindo.$$.getSingle("._" + sTargetLayerClass);
+
+		if(!elTargetLayer){
+			nmp.loadHTML(nmp.prependContext("/main/layers/") + sTargetLayerURI, document.body, jindo.$Fn(this._onLayerLoad, this).bind(sTargetLayerClass, elBaseElement, htLayerOption, oContext), "append");
+			return;
+		}
+		arguments[0] = elTargetLayer;
+		this.show.apply(this, arguments);
+	},
+
+	_onLayerLoad : function(sTargetLayerClass, elBaseElement, htLayerOption, oContext) {
+		var elTargetLayer = jindo.$$.getSingle("._" + sTargetLayerClass);
+
+		if(!elTargetLayer){
+			throw new Error("nmp.layer.showAfterLoad : check class name");
+		}
+
+		// Load 후 콜백
+		if(typeof(htLayerOption.fLoadCallback) == "function"){
+			htLayerOption.fLoadCallback(elTargetLayer);
+		}
+
+		arguments[0] = elTargetLayer;
+		this.show.apply(this, arguments);
+	},
+
+	/**
+	 * 레이어를 띄우고 나서, 해당 레이어안에 Link Tag가 있으면, 해당 Link에 Focus를 준다.
+	 * 웹접근성 관련 작업
+	 * @param elTargetLayer
+	 */
+	_focusInLayer : function(elTargetLayer) {
+		if (elTargetLayer && this._getOption("bKeyActionUse")) {
+			elTargetLayer.tabIndex = -1;
+			elTargetLayer.focus();
+			try{
+				var layer_key = $Element(elTargetLayer).attr("__layer_key");
+				var welCloseLink = $Element($Element(elTargetLayer).query("._clse_tab"));
+
+				this._htEventData["esc_key_check_" + layer_key] = this._attachEventHandler(elTargetLayer, "keydown", jindo.$Fn(this._onKeyDownForEsc, this).bind());
+
+				if(welCloseLink){
+					welCloseLink.attr("tab_key_check_", layer_key);
+					this._htEventData["tab_key_check_"+ layer_key] = this._attachEventHandler(welCloseLink, "keydown", jindo.$Fn(this._onKeyDownForTab, this).bind(elTargetLayer));
+				}
+
+			}catch(e){}
+		}
+	},
+
+	_onKeyDownForEsc : function(weKeyDown){
+		if(weKeyDown.key().keyCode == 27){
+			this.hide(weKeyDown.currentElement);
+		}
+	},
+
+	_onKeyDownForTab : function(elTarget, weKeyDown){
+		if(weKeyDown.key().keyCode == 9){
+			weKeyDown.stop();
+			this.hide(elTarget);
+		}
+	}
+}, true);

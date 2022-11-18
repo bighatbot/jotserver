@@ -1,0 +1,339 @@
+/**
+ * SelectBox로 표시하는 카테고리용 컴포넌트
+ * 카테고리 변경시(selectbox 가 변경시) "change" 이벤트를 발생시켜 사용자가 원하는 행동을 할 수 있다.
+ * @name nmp.component.CategorySelectorForSelectBox
+ * @class
+ * @author jkland
+ * @version 0.2
+ * @example
+ */
+nmp.component.CategorySelectorForSelectBox = $Class({
+	_htElementSelector : {
+		'select' : 'select._category_selector'
+	},
+
+	/**
+	 * 카테고리 처리를 위한 nmp.component.CategorySelectorBase 객체
+	 * @type {Class}
+	 */
+	_oCategoryBase : null,
+
+	/**
+	 * selectbox 엘리먼트 배열
+	 * @type {Array}
+	 */
+	_aSelectElement : null,
+
+
+	/**
+	 * 외부에서 지정된 카데고리를 표현하기 위한 Full ID 배열
+	 * @type {Array}
+	 */
+	_aSelectedCategory : null,
+
+	/**
+	 * 외부에서 지정된 카데고리를 표현하기 위해 현재 선택된 select box의 index
+	 * @type {Number}
+	 */
+	_nSelectedCategoryIndex : null,
+
+	/**
+	 * 현재 선택된 카테고리 Id
+	 * @type {Number}
+	 */
+	_sSelectedCategoryId : null,
+
+	/**
+	 * 페이지 로딩시 처음 시작하는 함수
+	 * 사용되는 이벤트 및 layout data 세팅작업을 한다.
+	 *
+	 * @param {HashTable} htData 레이아웃 구성에 필요한 Widget Data객체
+	 */
+	$init : function(htOption){
+		this._aSelectElement = null;
+		this._nChildCategoryLevel = null;
+		this._elSelectedCategory = null;
+		this._aSelectedCategory = null;
+		this._nSelectedCategoryIndex = null;
+		this._sSelectedCategoryId = null;
+		this.option({
+			"sRootElementSelector" : "",
+			"sActionURL" : "",
+			"sNoChildCategoryText" :"분류가 없습니다.",//하위 카테고리가 없는 경우 하위 카테고리 항목에 노출될 text
+			"nGetCategoryLevel" : 1,
+			"sPostFixForHasChild" :"",	// 하위 카테고리가 있는 경우 이름 뒤에 표시해야 할 내용
+			"sDefaultCategoryText" :"",	// 카테고리 항목 Text ex)대분류, 소분류...
+			"sRootId" :"root"
+		});
+		this.option(htOption);
+		this._oCategoryBase = new nmp.component.CategorySelectorBase({"sActionURL":htOption.sActionURL}).attach({
+			"getChildCategories": $Fn(this._getChildFromBase,this).bind()	//하위 카테고리를 반환할때 발생하는 event
+		});
+		this._setElement();
+		this._attachEvent();
+	},
+
+	/**
+	 * 소멸시 수행되는 함수
+	 * 값들에 대한 null처리를 한다.
+	 */
+	destroy : function(){
+		this._oCategoryBase.destroy();
+		this._aSelectElement = null;
+		this._elSelectedCategory = null;
+	},
+
+	/**
+	 * Select box 엘리먼트를 cssquery로 미리 찾아 놓는 함수
+	 *
+	 * @param {jindo.$Element|HTMLElement|String} elBaseElement select box를 찾기위한 상위 엘리먼트
+	 */
+	_setElement : function(elBaseElement){
+		this._aSelectElement =  this._getElementList("select", true);
+	},
+
+	/**
+	 * evnet Attach함수
+	 */
+	_attachEvent : function(){
+		$A(this._aSelectElement).forEach(function(value, index, array) {
+			this._attachEventHandler(value, "change", $Fn(this._changeSelect,this).bind());
+		},this);
+	},
+
+
+	/**
+	 * 카테고리를 세팅하는 함수
+	 *
+	 * @param {Array} htData 카테고리 data 정보, 없는 경우 필요시 Ajax로 data를 가져온다.
+	 * @param {String} sSelectedCategoryID 선택된 카테고리 Full ID, 없으면 대분류만 표현한다.
+	 */
+	setData : function(aCategoryData,sSelectedCategoryID){
+		this._elSelectedCategory = null;
+		if(aCategoryData){	// data가 넘어오는 경우, data를 base에 세팅
+			this._oCategoryBase.setCategories(aCategoryData);
+		}
+		if(sSelectedCategoryID){	// 지정된 카테고리가 있는 경우, 배열을 돌면서 selectbox를 세팅한다.
+			this._aSelectedCategory = sSelectedCategoryID.split(">");
+		}
+		this._nSelectedCategoryIndex = 0;
+		this._setCategoryLevel(this.option("sRootId"),0); // 첫 selectbox 세팅
+	},
+
+	setPreLevel : function(){
+		var htCategoryData = this.getData();
+		if(htCategoryData && htCategoryData.sFullId){
+			var aSelectedCategory = htCategoryData.sFullId.split(">");
+			this.setData(null, aSelectedCategory.slice(0, aSelectedCategory.length-1).join(">"));
+		}
+	},
+
+	/**
+	 * select box가 변경되었을때 수행되는 함수
+	 *
+	 * @param {Event}	weEvent 이벤트 객체
+	 */
+	_changeSelect : function(weEvent){
+		this._elSelectedCategory = weEvent.element;
+		var htCategoryInfo = this._oCategoryBase.getCategoryInfo(weEvent.element.value);
+		if(htCategoryInfo){	// 카테고리가 선택된 경우.
+			this._setCategoryLevel(htCategoryInfo.sId,htCategoryInfo.nLevel);
+		}else{		// 카테고리가 선택되지 않은 경우. ex)대분류, 분류가 없습니다 등이 선택된 경우
+			this._setNotCategoryLevel();
+		}
+	},
+
+	/**
+	 * 카테고리가 선택되지 않은 경우 처리되는 함수.
+	 * ex)대분류, 분류가 없습니다 등이 선택된 경우에 수행된다.
+	 * 선택된 selectbox 하위 레벨 selectbox는 모두 초기화 시킨다.
+	 * 선택된 selectbox 위로 선택된 값을 fireevent로 반환시킨다.
+	 */
+	_setNotCategoryLevel : function(){
+		var nLevel = null;
+		var sCategoryId = null;
+		var sSelectValue = null;
+		var htCategoryInfo = null;
+
+		for(var i=0,nLen=this._aSelectElement.length; i<nLen; i++){
+			sSelectValue = this._aSelectElement[i].value;
+			if(sSelectValue&&sSelectValue!="-1"){
+				sCategoryId = sSelectValue;
+			}else{
+				nLevel = i+1;
+				break;
+			}
+		}
+		if(nLevel){
+			this._emptyCategory(nLevel);
+		}
+		if(sCategoryId){
+			htCategoryInfo = this._oCategoryBase.getCategoryInfo(sCategoryId);
+		}
+
+		var htReturnValue = {
+				"bSuccess" : true,
+				"htCategory" : htCategoryInfo,
+				"element" :this._elSelectedCategory,
+				"aChildCategories":null
+			};
+		this.fireEvent("change",{"htResult":htReturnValue});
+	},
+
+	/**
+	 * 넘겨받은 카테고리 ID 하위의 select box를 세팅하는 함수
+	 *
+	 * @param {String}	sCategoryID 선택된 카테고리 Id
+	 * @param {Number}	nLevel 하위 카데고리 level
+	 */
+	_setCategoryLevel : function(sCategoryID,nLevel){
+		this._nChildCategoryLevel = nLevel;
+		this._sSelectedCategoryId = sCategoryID;
+		var elChildSelectBox = this._aSelectElement[nLevel];
+		if(elChildSelectBox){
+			this._emptyCategory(nLevel);
+			this._oCategoryBase.getChildCategories(sCategoryID);
+		}else{
+			var htCategoryInfo = this._oCategoryBase.getCategoryInfo(sCategoryID);
+			var htReturnValue = {
+					"bSuccess" : true,
+					"htCategory" : htCategoryInfo,
+					"element" :this._elSelectedCategory,
+					"aChildCategories":null
+				};
+			this.fireEvent("change",{"htResult":htReturnValue});
+		}
+	},
+
+	/**
+	 * 넘겨받은 index 아래의 카테고리 selectbox를 모두 비우는 함수
+	 * 자신은 포함되지 않는다.
+	 *
+	 * @param {Number}	nStartCategoryIndex 선택된 카테고리 index(0부터 시작)
+	 */
+	_emptyCategory : function(nStartCategoryIndex){
+		var sDefaultCategoryText = null;
+		var aChildCategories = null;
+		for(var i=nStartCategoryIndex;i<this._aSelectElement.length;i++){
+			$Element(this._aSelectElement[i]).empty();
+			sDefaultCategoryText = this.option("sDefaultCategoryText")[i];
+			if(sDefaultCategoryText){
+				aChildCategories = [{'sName':sDefaultCategoryText,'sId':"-1",'bHasChild':false}];
+				this._makeCategory(aChildCategories,this._aSelectElement[i],true);
+			}
+		}
+	},
+
+	/**
+	 * nmp.component.CategorySelectorBase로 부터 받은 data로 select box를 표현하고 fire event로 사용자에게 알린다.
+	 *
+	 * @param {Event}	weEvent 이벤트 객체
+	 */
+	_getChildFromBase : function(weEvent){
+		var htResult = weEvent.htResult;
+		var htReturnValue = null;
+		if(htResult.bSuccess){	// 성공적으로 가져온 경우
+			if(!(htResult.htCategory && this._sSelectedCategoryId!=htResult.htCategory.sId)){
+				var aChildCategories = htResult.aChildCategories;
+				if(!aChildCategories){
+					aChildCategories = [{'sName':this.option("sNoChildCategoryText"),'sId':"-1",'bHasChild':false}];
+				}
+				htReturnValue = {
+					"bSuccess" : true,
+					"htCategory" : htResult.htCategory,
+					"element" :this._elSelectedCategory,
+					"aChildCategories":htResult.aChildCategories
+				};
+				if(this.fireEvent("change",{"htResult":htReturnValue})){
+					this._makeCategory(aChildCategories,this._aSelectElement[this._nChildCategoryLevel]);
+				}else{
+					this._aSelectedCategory = null;
+				}
+			}
+		}else{	// 가져오지 못한 경우
+			htReturnValue = {
+				"bSuccess":false,
+				"htCategory" : htResult.htCategory,
+				"sErrorCode" : htResult.sErrorCode,
+				"sErrorMessage":htResult.sErrorMessage
+			};
+			this.fireEvent("change",{"htResult":htReturnValue});
+		}
+	},
+
+	/**
+	 * selectbox의 내용을 체우는 함수
+	 *
+	 * @param {Array}	aChildCategories 카테고리 배열
+	 * @param {Element}	elChildSelectBox select box element
+	 */
+	_makeCategory : function(aChildCategories,elChildSelectBox,bEmpty){
+		var htCategory = null;
+		var sName = null;
+		for(var i=0,nLen = aChildCategories.length; i<nLen; i++){
+			htCategory = aChildCategories[i];
+			sName = htCategory.bHasChild?htCategory.sName+this.option("sPostFixForHasChild"):htCategory.sName;
+			nmp.utility.addSelectboxOption(elChildSelectBox,sName,htCategory.sId);
+		}
+		if(!bEmpty&&this._aSelectedCategory){
+			if(this._aSelectedCategory.length===0){
+				this._nSelectedCategoryIndex = null;
+				this._aSelectedCategory = null;
+			}else{
+				var sSelectedCategoryID = this._aSelectedCategory.shift();
+				elChildSelectBox.value = sSelectedCategoryID;
+				this._nSelectedCategoryIndex++;
+				this._setCategoryLevel(sSelectedCategoryID,this._nSelectedCategoryIndex);
+			}
+		}
+	},
+
+	/**
+	 * 선택된 카테고리를 반환하기 위해 하위 selectbox로 부터 값을 찾는 함수.
+	 * 하위 selectbox에서 상위 selectbox로 option으로 지정된 카테고리 level까지 찾는다.
+	 * 선택된 카테고리가 없으면 null을 반환한다.
+	 * @return {String} 선택된 카테고리 ID
+	 */
+	_getSelectCatogory : function(){
+		var sSelectCategoryID = null;
+		for(var i=this._aSelectElement.length-1; i>=(this.option("nGetCategoryLevel")-1); i--){
+			if(this._aSelectElement[i].value && this._aSelectElement[i].value!="-1"){
+				sSelectCategoryID = this._aSelectElement[i].value;
+				break;
+			}
+		}
+		return sSelectCategoryID;
+	},
+
+	/**
+	 * 선택된 카테고리를 정보를 반환하는 함수
+	 * 선택된 카테고리가 없으면 null을 반환한다.
+	 * @return {HashTable} 선택된 카테고리 정보
+	 */
+	getData : function(){
+		var htCategoryInfo = null;
+		var sSelectCategoryID = this._getSelectCatogory();
+		if(sSelectCategoryID){
+			htCategoryInfo = this._oCategoryBase.getCategoryInfo(sSelectCategoryID);
+		}
+		return htCategoryInfo;
+	},
+
+	/**
+	 * 모든 카테고리 SelectBox를 모두 disabled 한다.
+	 * @param isDisable disabled옵션
+	 */
+	disable : function(isDisable) {
+		for(var i=0, len = this._aSelectElement.length; i < len ; i++) {
+			this._aSelectElement[i].disabled = isDisable;
+		}
+	},
+
+	disableFromIndex : function(nIndex) {
+//console.log("component index : ", nIndex)
+		for(var i = nIndex,len = this._aSelectElement.length; i < len ; i++) {
+			this._aSelectElement[i].disabled = true;
+		}
+	}
+
+}).extend(nmp.component.Base);

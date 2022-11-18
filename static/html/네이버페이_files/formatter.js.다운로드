@@ -1,0 +1,276 @@
+nmp.createModule("nmp.front.order.formatter",{
+	initialize : function(){
+	},
+	boolean : {
+		_toText : function(trueValue, falseValue, value, htRow) {
+			return ((value == true) || (value == "true")) ? trueValue: falseValue;
+		},
+		textFormatter : function(trueValue, falseValue) {
+			var self = nmp.front.order.formatter.boolean;
+			return jindo.$Fn(self._toText, self).bind(trueValue, falseValue);
+		},
+		toYN : function() {
+			var self = nmp.front.order.formatter.boolean;
+			return self.textFormatter("Y","N");
+		}
+	},
+	date : {
+		_htOffset : {
+		},
+		_format : {
+			date :"Y.m.d",
+			dateTime : "Y.m.d H:i:s"
+		},
+		_get$Date : function(milliseconds){
+			if(typeof milliseconds == "string"){
+				milliseconds = parseInt(milliseconds);
+			}
+			
+			if(typeof milliseconds == "number" && milliseconds >= 0 ){
+				var timezone = 9;
+				milliseconds = this._setTimezoneOffset(milliseconds, timezone);
+
+				var date = $Date();
+				return date.time(milliseconds);
+			}else{
+				return null;
+			}
+		},
+		_setTimezoneOffset : function(vUTCTimestamp, targetTimeZone) {
+			var offsetValue = this._htOffset["Offset"+targetTimeZone];
+			
+			if ( offsetValue == null ) {
+				var diffGMT2Target = targetTimeZone * 60 * 60 * 1000;
+				var diffLocal2GMT = (new Date()).getTimezoneOffset() * 60 * 1000;
+				
+				offsetValue = diffGMT2Target + diffLocal2GMT;
+				
+				this._htOffset["Offset"+targetTimeZone] = offsetValue;
+			}
+			return vUTCTimestamp + offsetValue;
+		},
+		_toText : function(formatString, vValue, htRow) {
+			var date = this._get$Date(vValue);
+			return date ? date.format(formatString) : vValue;
+		},
+		/**
+		 * milliseconds 형식으로 시간을 입력받아 특정형식의 날짜 문자열로 반환
+		 * grid에 callback formatter로 사용 가능
+		 * 
+		 * @param vValue milliseconds값 string이나 number 모두 가능
+		 * @param htRow 참조형이라 값을 변경하면 안됨 
+		 * @returns 2011.01.01 형식의 문자열
+		 */
+		toYmd : function(){
+			var self = nmp.front.order.formatter.date;
+			return jindo.$Fn(self._toText, self).bind(self._format.date);
+		},
+		/**
+		 * milliseconds 형식으로 시간을 입력받아 특정형식의 날짜 문자열로 반환
+		 * grid에 callback formatter로 사용 가능
+		 * 
+		 * @param vValue milliseconds값 string이나 number 모두 가능
+		 * @param htRow 참조형이라 값을 변경하면 안됨 
+		 * @returns 2011.01.01 23:01:01 형식의 문자열
+		 */
+		toYmdHis : function(){
+			var self = nmp.front.order.formatter.date;
+			return jindo.$Fn(self._toText, self).bind(self._format.dateTime);
+		}
+	},
+	operator : {
+		_toText : function(operator, htRow ) {
+			var result = operator.displayId;
+			if ( operator != null && operator.type == "ADM" ) {
+				result += "(" + operator.displayName + ")";
+			}
+			return result;
+		},
+		toId : function(fieldName) {
+			var self = nmp.front.order.formatter.operator;
+			return jindo.$Fn(self._toText, self).bind();
+		}
+	},
+	deliveryInfo : {
+		_toText : function(addressTemplate, deliveryInfo, htRow) {
+			return $Template(addressTemplate).process(deliveryInfo);
+		},
+		addressFormatter : function(addressTemplate) {
+			if (addressTemplate == null ) {
+				addressTemplate = "{if zipCode}({js (=zipCode).substring(0,3)}-{js (=zipCode).substring(3)}){/if} {=baseAddress} {=detailAddress}";
+			}
+			var self = nmp.front.order.formatter.deliveryInfo;
+			return jindo.$Fn(self._toText, self).bind(addressTemplate);
+		}  
+	},
+	code : {
+		UNKNOWN_CODE : "unknown code",
+		EMPTY_CODE : "",
+		_initialize : function(initParam){
+			if(!nmp.front.order.formatter.codes){
+				nmp.front.order.formatter.codes = {};
+			}
+			
+			if(initParam && typeof initParam == "object"){
+				if(initParam["codes"]){
+					for(var codeTypeName in initParam["codes"]){
+						nmp.front.order.formatter.code.addList(codeTypeName, initParam["codes"][codeTypeName]);
+					}
+				}
+			}
+		}
+	},
+	memberId : {
+		_toText : function(memberId, htRow) {
+			var sSource = (typeof memberId != "String") ? memberId.toString() : memberId;
+			var header = sSource.substring(0, 4);
+			if(sSource.length>4) {
+				for(var i=0; i<(sSource.length-4); i++) {
+					header += "*";
+				}
+			}
+			return header;
+		},
+		memberIdTemplate : function(memberId) {
+			var self = nmp.front.order.formatter.memberId;
+			return self._toText(memberId);
+		}
+	},
+	code : {
+		UNKNOWN_CODE : "unknown code",
+		EMPTY_CODE : "",
+		_initialize : function(initParam){
+			if(!nmp.front.order.formatter.codes){
+				nmp.front.order.formatter.codes = {};
+			}
+			
+			if(initParam && typeof initParam == "object"){
+				if(initParam["codes"]){
+					for(var codeTypeName in initParam["codes"]){
+						nmp.front.order.formatter.code.addList(codeTypeName, initParam["codes"][codeTypeName]);
+					}
+				}
+			}
+		},
+		/**
+		 * 
+		 * @param codeTypeName 분류명. 대체로 Enum class 이름.  
+		 * @param codeList 추가하려는 code목록
+		 */
+		addList : function(codeTypeName, codeList){
+			if(codeTypeName && typeof codeList == "object"){
+				nmp.front.order.formatter.codes[codeTypeName] = codeList;
+			}
+		},
+		/**
+		 * 
+		 * @param codeTypeName 분류명. 대체로 Enum class 이름.
+		 * @param code 추가하려는 code
+		 * @param text 추가하려는 code의 노출명
+		 */
+		add : function(codeTypeName, code, text){
+			if(!nmp.front.order.formatter.codes[codeTypeName]){
+				nmp.front.order.formatter.codes[codeTypeName] = {};
+			}
+			nmp.front.order.formatter.codes[codeTypeName][code] = text;
+		},
+		/**
+		 * grid에 callback formatter로 사용하기 위해서는
+		 * function(vValue, htRow){return nmp.front.order.formatter.code.toText(vValue, "ProductOrderStatusType");}
+		 * 이런식으로 사용
+		 * 
+		 * @param code 찾으려고 하는 노출명의 code
+		 * @param codeTypeName 찾으려고 하는 노출명의 codeTypeName
+		 * @returns 해당 노출명
+		 */
+		_toText : function(codeTypeName, code, htRow){
+			if(nmp.utility.isEmpty(code) || nmp.utility.isEmpty(codeTypeName)){
+				return nmp.front.order.formatter.code.EMPTY_CODE;
+			}
+			
+			if(nmp.front.order.formatter.codes[codeTypeName]){
+				var text = nmp.front.order.formatter.codes[codeTypeName][code];
+				if(text != undefined){
+					return text;  
+				}
+			}
+			
+			return nmp.front.order.formatter.code.UNKNOWN_CODE;
+		},
+		toText : function(codeTypeName, code) {
+			var self = nmp.front.order.formatter.code;
+			return self._toText(codeTypeName, code);
+		},
+		textFormatter : function(codeTypeName) {
+			var self = nmp.front.order.formatter.code;
+			return jindo.$Fn(self._toText, self).bind(codeTypeName);
+		}
+	},
+	phoneNumber : {
+		_toArray : function(sPhoneNumber, htRow) {
+			if (!sPhoneNumber) {
+				return ["","",""];
+			}
+			var sTemp = sPhoneNumber.replace(/-/g,"");
+			if (!sTemp) {
+				return [sPhoneNumber,"",""];
+			}
+			var nFirst = 0;
+			var nSecond = 0;
+			if (sTemp.substring(0,1) == "0"){
+				var sFirst = sTemp.substring(0,3);
+				if (sFirst == "013" || sFirst == "030" || sFirst == "050") {
+					nFirst = 4;
+				} else if (sTemp.substring(0,2) == "02") {
+					nFirst = 2;
+				} else {
+					nFirst = 3;
+				}
+				if (sTemp.length - nFirst < 8) {
+					nSecond = 3;
+				} else {
+					nSecond = 4;
+				}
+			} else {
+				nSecond = 4;
+			}
+			return aResult = [sTemp.substring(0, nFirst),
+			               sTemp.substring(nFirst, nFirst + nSecond),
+			               sTemp.substring(nFirst + nSecond)];
+		},
+		splitToArray : function(sPhoneNumber){
+			var self = nmp.front.order.formatter.phoneNumber;
+			return self._toArray(sPhoneNumber);
+		}
+	},
+	zipcode : {
+		_toArray : function(sZipcode, htRow) {
+			if (!sZipcode) {
+				return ["",""];
+			}
+			sZipcode = sZipcode.replace(/-/g,"");
+			if (sZipcode.length < 4) {
+				return [sZipcode, ""];
+			} else {
+				return [sZipcode.substring(0,3), sZipcode.substring(3)];
+			}
+		},
+		splitToArray : function(sZipcode){
+			var self = nmp.front.order.formatter.zipcode;
+			return self._toArray(sZipcode);
+		}
+	},
+	converToGridMapArray : function(keys, rowValues){
+		var rows = [];
+		for (var rowIndex=0 ; rowIndex<rowValues.length ; rowIndex++) {
+			var rowValue = rowValues[rowIndex];
+			var row = {};
+			for (var i=0; i<keys.length ; i++) {
+				row[keys[i]] = rowValue[i];
+			}
+			rows.push(row);
+		}
+		return rows;
+	},
+	"":""
+}, true);

@@ -1,0 +1,1528 @@
+/*
+ * 1개의 날짜를  보여주고 일,주,월 달력 선택 가능한 컴포넌트 
+ */
+jindo.MultiDatePicker = jindo.$Class({
+	_QUICK_TODAY_CLASS	: "_quick_today",
+	_QUICK_DAY_CLASS	: "_quick_day",
+	_QUICK_WEEK_CLASS	: "_quick_week",
+	_QUICK_MONTH_CLASS	: "_quick_month",
+	_DAY_CALENDAR_TEMPLATE :'<div class="_day_calendar_template uio_calendar" style="display:none;">' +
+		'<div class="top">' +
+		'<a href="#" class="calendar-btn-prev-year"><span class="blind">맨처음</span></a>' +
+		'<a href="#" class="calendar-btn-prev-mon"><span class="blind">이전</span></a>' +
+		'<strong class="calendar-title"></strong>' +
+		'<a href="#" class="calendar-btn-next-mon"><span class="blind">다음</span></a>' +
+		'<a href="#" class="calendar-btn-next-year"><span class="blind">이전</span></a>' +
+		'</div>' +
+		'<div class="middle">' +
+		'<table cellspacing="0" border="1">' +
+		'<caption>달력</caption>' +
+		'<col width="14%"><col width="14%"><col width="14%"><col width="14%"><col width="14%"><col width="14%"><col>' +
+		'<thead><tr><th scope="col">일</th><th scope="col">월</th><th scope="col">화</th><th scope="col">수</th><th scope="col">목</th><th scope="col">금</th><th scope="col">토</th></tr></thead>' +
+		'<tbody><tr class="calendar-week">' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'</tr></tbody>' +
+		'</table>' +
+		'<div class="_textarea btm"></div>' +
+		'</div>' +
+		'<!-- [D] IE 6에서 셀렉트박스가 레이어를 뚫고 올라오는 문제를 해결하기 위해 추가 --><!--[if lte IE 6.0]><iframe title="레이어 백그라운드" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" class="ifr_layer"></iframe><![endif]-->' +
+		'</div>',
+	_DAY_CALENDAR_TEMPLATE_TEXTAREA : '<span>일간 : 최근 3개월이내</span>',
+	_WEEK_CALENDAR_TEMPLATE :'<div class="_week_calendar_template uio_calendar" style="display:none;">' +
+		'<div class="top">' +
+		'<a href="#" class="calendar-btn-prev-year"><span class="blind">맨처음</span></a>' +
+		'<a href="#" class="calendar-btn-prev-mon"><span class="blind">이전</span></a>' +
+		'<strong class="calendar-title">2011.04</strong>' +
+		'<a href="#" class="calendar-btn-next-mon"><span class="blind">다음</span></a>' +
+		'<a href="#" class="calendar-btn-next-year"><span class="blind">이전</span></a>' +
+		'</div>' +
+		'<div class="middle">' +
+		'<table cellspacing="0" border="1">' +
+		'<caption>달력</caption>' +
+		'<col width="14%"><col width="14%"><col width="14%"><col width="14%"><col width="14%"><col width="14%"><col>' +
+		'<thead><tr><th scope="col">일</th><th scope="col">월</th><th scope="col">화</th><th scope="col">수</th><th scope="col">목</th><th scope="col">금</th><th scope="col">토</th></tr></thead>' +
+		'<tbody><tr class="calendar-week">' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'<td><a href="#" class="calendar-date"></a></td>' +
+		'</tr></tbody>' +
+		'</table>' +
+		'<div class="_textarea btm"></div>' +
+		'</div>' +
+		'<!-- [D] IE 6에서 셀렉트박스가 레이어를 뚫고 올라오는 문제를 해결하기 위해 추가 --><!--[if lte IE 6.0]><iframe title="레이어 백그라운드" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" class="ifr_layer"></iframe><![endif]-->' +
+		'</div>',
+	_WEEK_CALENDAR_TEMPLATE_TEXTAREA : '<span>주간 : 최근 15주이내 선택가능</span>',
+	_MONTH_CALENDAR_TEMPLATE :'<div class="_month_calendar_template uio_calendar" style="display:none;">' +
+		'<div class="top">' +
+		'<a href="#" class="calendar-btn-prev-year"><span class="blind">맨처음</span></a>' +
+		'<strong class="calendar-title"></strong>' +
+		'<a href="#" class="calendar-btn-next-year"><span class="blind">이전</span></a>' +
+		'</div>' +
+		'<div class="middle">' +
+		'<table cellspacing="0" border="1" class="calendar_month">' +
+		'<caption>달력</caption>' +
+		'<col width="14%"><col width="14%"><col width="14%"><col width="14%">' +
+		'<tbody>' +
+		'<tr><td class="calendar-selected"><a href="#" class="calendar-month">1월</a></td><td><a href="#" class="calendar-month">2월</a></td><td><a href="#" class="calendar-month">3월</a></td><td><a href="#" class="calendar-month">4월</a></td></tr>' +
+		'<tr><td><a href="#" class="calendar-month">5월</a></td><td><a href="#" class="calendar-month">6월</a></td><td><a href="#" class="calendar-month">7월</a></td><td><a href="#" class="calendar-month">8월</a></td></tr>' +
+		'<tr><td><a href="#" class="calendar-month">9월</a></td><td><a href="#" class="calendar-month">10월</a></td><td><a href="#" class="calendar-month">11월</a></td><td><a href="#" class="calendar-month">12월</a></td></tr>' +
+		'</tbody>' +
+		'</table>' +
+		'<div class="_textarea btm"></div>' +
+		'</div>' +
+		'<!-- [D] IE 6에서 셀렉트박스가 레이어를 뚫고 올라오는 문제를 해결하기 위해 추가 --><!--[if lte IE 6.0]><iframe title="레이어 백그라운드" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" class="ifr_layer"></iframe><![endif]-->' +
+		'</div>',
+	_MONTH_CALENDAR_TEMPLATE_TEXTAREA : '<span>월간 : 모든 기간 선택 가능</span>',
+	_htElement		 : null,
+	_htEventHandler : null,
+	_htEventData	 : null,
+	_htDatePicker	: null,
+	_htPickerSet : null,
+	_htCalendarStartDate : null,
+	_htCalendarEndDate : null,
+	_htBaseDate : null,
+	_oPeriodDisplay : null,
+	_sPeriod : null,
+	_sShowPeriod : null,
+	_htHighlightList : null,
+	_htUnselectList : null,
+	_bForce : null,
+	_bQuickButtonEvent : null,
+	/**
+	 * @param {HashTable}	htOption	옵션값
+	 * "vToday":null,					// (선택) 오늘날짜. 입력은	 으로 받을 수 있음, 없으면 클라이언트 값으로 세팅됨
+	 * "vDate":null,					// (필수) 처음 적용될 날짜. 입력은 5가지 형식(javascript Date,{nYear:2010,nMonth:1,nDate:13,nHour:14,nMinute:13,nSecond:0},"2010-01-13 14:13:00","2010.01.13 14:13:00","20100113141300")으로 받을 수 있음,
+	 * "vSelectableDateFrom" : null,	// (선택) 달력 앞쪽 제한 날짜. 입력은 5가지 형식(javascript Date,{nYear:2010,nMonth:1,nDate:13,nHour:14,nMinute:13,nSecond:0},"2010-01-13 14:13:00","2010.01.13 14:13:00","20100113141300")으로 받을 수 있음
+	 * "vSelectableDateTo" : null,		// (선택) 달력 뒤쪽 제한 날짜. 입력은 5가지 형식(javascript Date,{nYear:2010,nMonth:1,nDate:13,nHour:14,nMinute:13,nSecond:0},"2010-01-13 14:13:00","2010.01.13 14:13:00","20100113141300")으로 받을 수 있음
+	 * "elQuick" : null,				// (선택) 달력 종류 Quick 버튼 입력을 위한 버튼을 감싼 ul element. 하위 버튼들은 li element에 규칙이 있는 css class를 가지고 있어야 한다.
+	 *											 "_quick_today", "_quick_day", "_quick_week", "_quick_month" 를 가질 수 있다.
+	 *											 "_quick_today" : 달력의 변경은 없고 날짜를 오늘 기준으로 변경시킨다.
+	 * "elDate" : null,					// (선택) 날짜 관련 element(날짜 inputbox, 달력 버튼, 시간 selectbox)를 감싼 element, input 없이 button만 사용할 경우에는 "elStartDateBtn" 옵션에 button element를 적어주면 된다.
+	 *											날짜 inputbox :  "elDate" 옵션 element안에 있는 첫번째 input element
+	 *											달력 버튼 : "elDate" 옵션 element안에 있는 "_btn" css class를 가지는 첫번째 element
+	 *											시간 selectbox : "elStartDate" 옵션 element안에 있는 첫번째 select element
+	 * "elCalendar_btn" : null,			// (선택) 날짜 달력을 띄우는 버튼 element. "elDate" 옵션과 함께 사용할 경우에도 달력을 띄우는 버튼은 "elCalendar_btn"가 적용된다.
+	 * "elImgFont" : null,				// (선택) 날짜를 image font로 보여주는 경우 해당 영역을 감싸는 element. 이전, 이후 이동 버튼이 안에 있으면 자동으로 찾는다..
+	 *											 이전 이동 : "elImgFont" 옵션 element안에 있는 "_prev" css class를 가지는 element
+	 *											 이후 이동 : "elImgFont" 옵션 element안에 있는 "_next" css class를 가지는 element
+	 * "elPrev" : null,					// (선택) 이전 이동 element : "elImgFont" 옵션 element안에 있는 "_prev"가 있어도 "elPrev"가 우선이다.
+	 * "elNext" : null,					// (선택) 이후 이동 element : "elImgFont" 옵션 element안에 있는 "_next"가 있어도 "elNext"가 우선이다.
+	 * "sDateFormat" : "yyyy.mm.dd",	// (선택) 날짜 inputbox에 들어가는 날짜 형식. 없으면 디폴드로 "yyyy.mm.dd"가 적용된다. "elImgFont" 사용시에는 무조건 "yyyy.mm.dd"가 된다.
+	 * "sDefaultQuickType" : null,		 // (선택) 처음 로딩시 적용될 Quick버튼의 css class명. 없으면 일간 달력이 적용 된다.
+	 * "vQuickBaseDate" : null,			// (선택) quick 버튼이 동작할 기준이 되는 날짜. 이 날짜가 포함된 일, 주, 월로 이동한다. 없으면 현재 보여지는 날짜를 기준으로 동작한다.
+	 * "bUseTime" : false				// (선택) 시간까지 사용하는 경우 true로 세팅. 없으면 false가 적용된다. true인 경우 시간 selectbox가 있어야 한다. "elImgFont" 사용시에는 반영이 안된다.
+	 * "bUseHighlight" : false			// (선택) 달력에 Highlight 표시를 사용여부. 사용할 경우 true
+	 * "aHighlightDateList" : null		// (선택) highlight 될 날짜들의 배열 [{htDateList},{htDateList},...]
+	 *											 htDateList ={
+	 *														 vStartDate:블럭 시작 날짜
+	 *														 vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 *														 nLength : 시작일 포함 블럭 길이
+	 *											 }
+	 * "bUseUnselectDate" : false			// (선택) 달력에 선택 안됨 표시를 사용여부. 사용할 경우 true
+	 * "aUnselectBlockList" : null		// (선택) unselectable 될 날짜들의 배열 [{htDateList},{htDateList},...]
+	 *											 htDateList ={
+	 *														 vStartDate:블럭 시작 날짜
+	 *														 vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 *														 nLength : 시작일 포함 블럭 길이
+	 *											 }
+	 * "htCalendarText" : default value //(선택) 달력에 나오는 Text, 일, 주, 월 달력 별로 지정 가능, text를 아예 노출하지 않아야 하면 ""로 값을 세팅
+	 *								 {
+	 *									 'day'	:	this._DAY_CALENDAR_TEMPLATE_TEXTAREA,	// "<span>일간 : 최근 3개월이내</span>"
+	 *									 'week'	:	this._WEEK_CALENDAR_TEMPLATE_TEXTAREA,	// "<span>주간 : 최근 15주이내 선택가능</span>"
+	 *									 'month'	:	this._MONTH_CALENDAR_TEMPLATE_TEXTAREA	// "<span>월간 : 모든 기간 선택 가능</span>"
+	 *								 }
+	 * "bActivateOnload" : true		// (선택) 컴포넌트 처음 생성시 Activate 유무
+	 * "bUseMinusSecond" : true		// (선택) 결과값 반환시 EndDate값을 -1초한 것으로 반환할지 여부   ture:-1초 사용
+	 * "bHideDate"	: false			// (선택) 처음 로딩시 input안의 값을 보일지 여부.
+	 *	"nWeekStartDate": 1,	// 주선택 달력에서 선택되어지는 주의 시작날짜(0:일요일)
+	 *	"nWeekDateCount": 7,	// 주 선택 달력에서 선택되어지는 날짜의 길이(7:1주일)
+	 *	"bFixedStartDate" : true // 주 선택 달력에서 시작날짜를 고정으로 할지(true), 마우스가 가리키는 날짜로 할지 지정(false)
+	 * 	"htLayerPosition" :  // (선택) LayerPosition을 위한 옵션 jindo의 LayerPosition 옵션과 같음. 아래의 옵션중 필요한 부분만 적으면 됨. 다 적을 필요 없음 ex) top값만 바꾸려면 htLayerPosition:{nTop: 5}
+	 * 			sPosition : "outside-bottom",		// (선택) 레이어가 정상적으로 뜰때 날짜 inputbox를 기준으로 떠야 하는 위치 지정
+	 * 			sAlign : "left",							// (선택) 가로 위치
+	 * 			sValign : "",						 		// (선택) 세로 위치
+	 * 			nTop : 0,									// (선택) 상하로 좀더 움직일 픽셀 (+ :하단 방향, - 상단 방향)
+	 * 			nLeft : 0,									// (선택) 좌우로 좀더 움직일 픽셀 (+ :우측 방향, - 좌측 방향)
+	 * 			bAuto: true								// (선택) 브라우져에 걸려서 제 위치에 노출이 불가능할 경우 자동으로 날짜 inputbox의 반대 방향에 노출
+	 * 		}
+	 * 	"sCalendarSelectColor" : ""	//(선택) 활성화되는 색상 없으면 css에 정의된 default 색상이 반영됨
+	 */
+	$init : function(htOption) {
+		this._htElement = {};
+		this._htEventHandler = {};
+		this._htEventData = {};
+		this._htDatePicker = {};
+		this._htPickerSet = null;
+		this._htEndSet = null;
+		this._oPeriodDisplay = null;
+		this._sPeriod = htOption.sPeriod?htOption.sPeriod:"day";
+		this._sShowPeriod = null;
+		this._bForce = false;
+		this._bQuickButtonEvent = false;
+		this._htHighlightList = {};
+		this._htUnselectList = {};
+		this.option({
+			"htToday":null,
+			"htDate":null,
+			"htQuickBaseDate":null,
+			"elQuick" : null,
+			"elDate" : null,
+			"elCalendar_btn" : null,
+			"elImgFont" : null,
+			"elPrev" : null,
+			"elNext" : null,
+			"sDateFormat" : "yyyy.mm.dd",
+			"sDefaultQuickType" : null,
+			"htSelectableDateFrom" : null,
+			"htSelectableDateTo" : null,
+			"bUseTime" : false,
+			"bUseHighlight" : false,		// (선택) highlight 기능 유무
+			"aHighlightDateList" : null,	// (선택) highlight 될 날짜들의 배열	,
+			"bUseUnselectDate" : false,		// (선택) unselectable 기능 유무
+			"aUnselectDateList" : null,		// (선택) unselectable 될 날짜들의 배열	,			
+			"htCalendarText" : {
+				'day'	:	this._DAY_CALENDAR_TEMPLATE_TEXTAREA,
+				'week'	:	this._WEEK_CALENDAR_TEMPLATE_TEXTAREA,
+				'month'	:	this._MONTH_CALENDAR_TEMPLATE_TEXTAREA
+			},
+			"bActivateOnload" : true,
+			"bUseMinusSecond" : true,
+			"bHideDate" : false,
+			"nWeekStartDate": 1,
+			"nWeekDateCount": 7,
+			"bFixedStartDate" : true,
+			"htLayerPosition" : { //LayerPosition을 위한 옵션
+				sPosition: "outside-bottom",
+				sAlign: "left",
+				nTop: 0,
+				nLeft: 0,
+				bAuto: true
+			},
+			"sCalendarSelectColor":""	//(선택) 활성화되는 색상 없으면 css에 정의된 default 색상이 반영됨
+		});
+
+		this.option(this._setPreOption(htOption, true));
+		this._htBaseDate = this.option("htDate");
+		if (!this.option("bUseTime")) {
+			this._setNotUseTime();
+		}
+		if (this.option("elQuick")) {
+			this._setQuickElementAndAttach();
+		}
+		this._setDateElementAndAttach();
+		this._setDefaultType();
+
+		if (this.option("bUseHighlight") && this.option("aHighlightDateList")) {
+			this.setHighlight(this.option("aHighlightDateList"));
+		}
+		if (this.option("bUseUnselectDate") && this.option("aUnselectDateList")) {
+			this.setUnselectDate(this.option("aUnselectDateList"));
+		}
+		if (this.option("bHideDate")) {
+			this.hideDate();
+		}
+		if (this.option("bActivateOnload")) {
+			this.activate(); //컴포넌트를 활성화한다.
+		}
+	},
+
+	_setPreOption : function(htOption, bInit) {
+		if (htOption.vToday) {
+			htOption.htToday = DateCoreAPI.getCoreDateFormat(htOption.vToday);
+		} else if (bInit) {
+			htOption.htToday = DateCoreAPI.getCoreDateFormat(new Date());
+		}
+
+		if (htOption.vDate) {
+			htOption.htDate = DateCoreAPI.getCoreDateFormat(htOption.vDate);
+		}
+
+		if (htOption.vQuickBaseDate) {
+			htOption.htQuickBaseDate = DateCoreAPI.getCoreDateFormat(htOption.vQuickBaseDate);
+		}
+
+		if (htOption.vSelectableDateFrom) {
+			htOption.htSelectableDateFrom = DateCoreAPI.getCoreDateFormat(htOption.vSelectableDateFrom);
+		} else {
+			htOption.htSelectableDateFrom = null;
+		}
+		if (htOption.vSelectableDateTo) {
+			htOption.htSelectableDateTo = DateCoreAPI.getCoreDateFormat(htOption.vSelectableDateTo);
+		} else {
+			htOption.htSelectableDateTo = null;
+		}
+		if (htOption.elImgFont) {
+			htOption.bUseTime = false;
+			htOption.sDateFormat = "yyyy.mm.dd";
+		}
+		if (htOption.htCalendarText) {
+			if (typeof htOption.htCalendarText.day != "undefined") {
+				htOption.htCalendarText.day = this._makeTemplateText(htOption.htCalendarText.day);
+			} else if (bInit) {
+				htOption.htCalendarText.day = this._DAY_CALENDAR_TEMPLATE_TEXTAREA;
+			}
+			if (typeof htOption.htCalendarText.week != "undefined") {
+				htOption.htCalendarText.week = this._makeTemplateText(htOption.htCalendarText.week);
+			} else if (bInit) {
+				htOption.htCalendarText.week = this._WEEK_CALENDAR_TEMPLATE_TEXTAREA;
+			}
+			if (typeof htOption.htCalendarText.month != "undefined") {
+				htOption.htCalendarText.month = this._makeTemplateText(htOption.htCalendarText.month);
+			} else if (bInit) {
+				htOption.htCalendarText.month = this._MONTH_CALENDAR_TEMPLATE_TEXTAREA;
+			}
+		}
+		return htOption;
+	},
+
+	_makeTemplateText : function(sText) {
+		var sReturnValue = "";
+		if (sText != "") {
+			sReturnValue = '<span>' + sText + '</span>';
+		}
+		return sReturnValue;
+	},
+
+	_setNotUseTime : function() {
+		if (this.option("htSelectableDateFrom")) {
+			var htSelectableDateFrom = this.option("htSelectableDateFrom");
+			htSelectableDateFrom.nHour = 0;
+			htSelectableDateFrom.nMinute = 0;
+			htSelectableDateFrom.nSecond = 0;
+			this.option("htSelectableDateFrom", htSelectableDateFrom);
+		}
+		if (this.option("htSelectableDateTo")) {
+			var htSelectableDateTo = this.option("htSelectableDateTo");
+			htSelectableDateTo.nHour = 23;
+			htSelectableDateTo.nMinute = 59;
+			htSelectableDateTo.nSecond = 59;
+			this.option("htSelectableDateTo", htSelectableDateTo);
+		}
+	},
+
+	_setQuickElementAndAttach : function () {
+		this._htElement["elQuick"] = jindo.$Element(this.option("elQuick"));
+		var aQuick = jindo.cssquery("li", this._htElement["elQuick"].$value());
+		var sQuickType = null;
+		for (var i = 0,nLen = aQuick.length; i < nLen; i++) {
+			var welQuick = jindo.$Element(aQuick[i]);
+			sQuickType = this._findRangeType(welQuick.className().split(" "));
+			if (sQuickType) {
+				this._htElement["quick_" + sQuickType] = welQuick;
+				this._htElement["quick_" + sQuickType + "_a"] = welQuick.query("a");
+				this._attachQuickEvent("quick_" + sQuickType + "_a", sQuickType);
+			}
+		}
+	},
+
+	_setDefaultType : function() {
+		if (this.option("sDefaultQuickType")) {
+			this._setQuickType(this.option("sDefaultQuickType"));
+		} else{
+			if (this._htElement["quick_day"]) {
+				this._setDay();
+			} else if (this._htElement["quick_week"]) {
+				this._setWeek();
+			} else if (this._htElement["quick_month"]) {
+				this._setMonth();
+			} else {
+				this._setCalendarType(this._sPeriod);
+			}
+		}
+	},
+
+	_setQuickType : function(sQuickTypeClassName) {
+		var sQuickType = this._findRangeType([sQuickTypeClassName]);
+		this._setCalendarType(sQuickType);
+	},
+
+	_setCalendarType : function(sQuickType){
+		switch (sQuickType) {
+			case "today":
+				this._setToday();
+				break;
+			case "day":
+				this._setDay();
+				break;
+			case "week":
+				this._setWeek();
+				break;
+			case "month":
+				this._setMonth();
+				break;
+		}
+	},
+
+	_findRangeType : function(aClassName) {
+		var sQuickType = null;
+		for (var i = 0; i < aClassName.length; i++) {
+			if (aClassName[i] == this._QUICK_TODAY_CLASS) {
+				sQuickType = "today";
+				break;
+			} else if (aClassName[i] == this._QUICK_DAY_CLASS) {
+				sQuickType = "day";
+				break;
+			} else if (aClassName[i] == this._QUICK_WEEK_CLASS) {
+				sQuickType = "week";
+				break;
+			} else if (aClassName[i] == this._QUICK_MONTH_CLASS) {
+				sQuickType = "month";
+				break;
+			}
+		}
+		return sQuickType;
+	},
+
+	_attachQuickEvent : function (sName, sQuickType) {
+		var fSetRange = null;
+		switch (sQuickType) {
+			case "today":
+				fSetRange = jindo.$Fn(this._setQuickToday, this);
+				break;
+			case "day":
+				fSetRange = jindo.$Fn(this._setQuickDay, this);
+				break;
+			case "week":
+				fSetRange = jindo.$Fn(this._setQuickWeek, this);
+				break;
+			case "month":
+				fSetRange = jindo.$Fn(this._setQuickMonth, this);
+				break;
+		}
+		this._htEventHandler[sName] = fSetRange.attach(this._htElement[sName], "click");
+		this._htEventData[sName] = {"element" : this._htElement[sName], "event" : "click"};
+	},
+
+	_setDateElementAndAttach : function() {
+		this._setCalendarSelectColor(this.option("sCalendarSelectColor"));
+		this._setDateElement();
+		this._attachDateElement();
+		if (this.option("elImgFont")) {
+			this._oPeriodDisplay = new jindo.PeriodDisplay(jindo.$Element(this.option("elImgFont")).$value());
+			if (this.option("htDate")) {
+				this._oPeriodDisplay.set(this.option("htDate"));
+			}
+		}
+		this._createDatePicker();
+	},
+
+	_makeDayPickerSet : function() {
+		var htDatePickerSet = {
+			'htOption' : {
+				'bReadOnly' : true,
+				'bDefaultSet' :  false,
+				'sDateFormat': this.option("sDateFormat")
+			}
+		};
+		if (this._htElement["elDate_input"]) {
+			htDatePickerSet['elInput'] = this._htElement["elDate_input"];
+		}
+		if (this._htElement["elDate_button"]) {
+			htDatePickerSet['elButton'] = this._htElement["elDate_button"];
+			if (!this._htElement["elDate_input"]) {
+				htDatePickerSet['elLayerPosition'] = this._htElement["elDate_button"];
+			}
+		}
+
+		if (this.option("htSelectableDateFrom")) {
+			htDatePickerSet['htOption']['htSelectableDateFrom'] = this.option("htSelectableDateFrom");
+		}
+		if (this.option("htSelectableDateTo")) {
+			htDatePickerSet['htOption']['htSelectableDateTo'] = this.option("htSelectableDateTo");
+		}
+		if (this.option("htDate")) {
+			htDatePickerSet['htOption']['bDefaultSet'] = true;
+			htDatePickerSet['htOption']['nYear'] = this.option("htDate").nYear;
+			htDatePickerSet['htOption']['nMonth'] = this.option("htDate").nMonth;
+			htDatePickerSet['htOption']['nDate'] = this.option("htDate").nDate;
+			if (this._htElement["elDate_hour"]) {
+				this._htElement["elDate_hour"].value = this.option("htDate").nHour;
+			}
+		}
+		return htDatePickerSet;
+	},
+
+	_makeWeekPickerSet : function(elBase) {
+		var htWeekSet = {
+			'elLayerPosition' : elBase,
+			'nWeekStartDate': 1,
+			'nWeekDateCount': 7,
+			'bFixedStartDate' : true,
+			'bUseLayerPosition' : true,
+
+			'Calendar' : {
+				'bDrawOnload' : false,
+				'sTitleFormat' : "yyyy.mm"
+			},
+
+			'LayerManager': {
+				'sCheckEvent'	: "click",
+				'nHideDelay'	: 0,
+				'nCheckDelay'	: 0
+			},
+			'LayerPosition' : {
+				sPosition: "outside-bottom",
+				sAlign: "left",
+				nTop: 0,
+				nLeft: 0,
+				bAuto: true
+			},
+
+			'htCustomEventHandler': {
+				'click': jindo.$Fn(this._checkDatePickerClick, this).bind("week"),
+				'beforeDraw': jindo.$Fn(this._checkBeforeDraw, this).bind(),
+				'afterDraw': jindo.$Fn(this._setCalendarAfterDraw, this).bind(),
+				'select': jindo.$Fn(this._changeDate, this).bind()
+			}
+		};
+		var htLayerPositionParam = this.option("htLayerPosition");
+		for(x in htLayerPositionParam){
+			htWeekSet["LayerPosition"][x] =htLayerPositionParam[x];
+		}
+//			htWeekSet['elLayerPosition'] = elBase;
+		if (this.option("htSelectableDateFrom")) {
+			htWeekSet['htSelectableDateFrom'] = this.option("htSelectableDateFrom");
+		}
+		if (this.option("htSelectableDateTo")) {
+			htWeekSet['htSelectableDateTo'] = this.option("htSelectableDateTo");
+		}
+		htWeekSet['nWeekStartDate'] = this.option("nWeekStartDate");
+		htWeekSet['nWeekDateCount'] = this.option("nWeekDateCount");
+		htWeekSet['bFixedStartDate'] = this.option("bFixedStartDate");
+		return htWeekSet;
+	},
+
+
+	_makeMonthPickerSet : function(elBase) {
+		var htMonthSet = {
+			'elLayerPosition' : elBase,
+			'bUseLayerPosition' : true,
+			'LayerManager': {
+				'sCheckEvent'	: "click",
+				'nHideDelay'	: 0,
+				'nCheckDelay'	: 0
+			},
+			'LayerPosition' :  {
+				sPosition: "outside-bottom",
+				sAlign: "left",
+				nTop: 0,
+				nLeft: 0,
+				bAuto: true
+			},
+
+			'htCustomEventHandler': {
+				'click': jindo.$Fn(this._checkDatePickerClick, this).bind("month"),
+				'beforeDraw': jindo.$Fn(this._checkBeforeDraw, this).bind(),
+				'afterDraw': jindo.$Fn(this._setCalendarAfterDraw, this).bind(),
+				'select': jindo.$Fn(this._changeDate, this).bind()
+			}
+		};
+
+		var htLayerPositionParam = this.option("htLayerPosition");
+		for(x in htLayerPositionParam){
+			htMonthSet["LayerPosition"][x] =htLayerPositionParam[x];
+		}
+
+		if (this.option("htSelectableDateFrom")) {
+			htMonthSet['htSelectableDateFrom'] = this.option("htSelectableDateFrom");
+		}
+		if (this.option("htSelectableDateTo")) {
+			htMonthSet['htSelectableDateTo'] = this.option("htSelectableDateTo");
+		}
+
+		return htMonthSet;
+	},
+
+	_setDateElement : function() {
+		var welStartDate = jindo.$Element(this.option("elDate"));
+		if (welStartDate) {
+			this._htElement["elDate_input"] = welStartDate.query("input[type=text]") || welStartDate.query("input");
+		}
+
+		if (this.option("elCalendar_btn")) {
+			this._htElement["elDate_button"] = jindo.$Element(this.option("elCalendar_btn")).$value();
+		} else if (welStartDate) {
+			this._htElement["elDate_button"] = welStartDate.query("._btn");
+		}
+
+		if (welStartDate && this.option("bUseTime")) {
+			this._htElement["elDate_hour"] = welStartDate.query("select");
+		}
+
+		this._htElement["day_calendar"] = jindo.cssquery.getSingle("._day_calendar_template");
+		if (!this._htElement["day_calendar"]) {
+			this._htElement["day_calendar"] = jindo.$Element(jindo.$Template(this._DAY_CALENDAR_TEMPLATE).process()).$value();
+			document.body.appendChild(this._htElement["day_calendar"]);
+		} else {
+			var aElDayTd = jindo.cssquery("tr:first-child td", this._htElement["day_calendar"]);
+			for (var i = 0,nDayLen = aElDayTd.length; i < nDayLen; i++) {
+				aElDayTd[i].className = "";
+			}
+		}
+		this._htElement["day_calendar_textarea"] = jindo.$Element(jindo.cssquery.getSingle("._textarea", this._htElement["day_calendar"]));
+
+		this._htElement["week_calendar"] = jindo.cssquery.getSingle("._week_calendar_template");
+		if (!this._htElement["week_calendar"]) {
+			this._htElement["week_calendar"] = jindo.$Element(jindo.$Template(this._WEEK_CALENDAR_TEMPLATE).process()).$value();
+			document.body.appendChild(this._htElement["week_calendar"]);
+		} else {
+			var aElWeekTd = jindo.cssquery("tr:first-child td", this._htElement["week_calendar"]);
+			for (var j = 0,nWeekLen = aElWeekTd.length; j < nWeekLen; j++) {
+				aElWeekTd[j].className = "";
+			}
+		}
+		this._htElement["week_calendar_textarea"] = jindo.$Element(jindo.cssquery.getSingle("._textarea", this._htElement["week_calendar"]));
+
+		this._htElement["month_calendar"] = jindo.cssquery.getSingle("._month_calendar_template");
+		if (!this._htElement["month_calendar"]) {
+			this._htElement["month_calendar"] = jindo.$Element(jindo.$Template(this._MONTH_CALENDAR_TEMPLATE).process()).$value();
+			document.body.appendChild(this._htElement["month_calendar"]);
+		} else {
+			var aElMonthTd = jindo.cssquery("td", this._htElement["month_calendar"]);
+			for (var k = 0,nMonthLen = aElMonthTd.length; k < nMonthLen; k++) {
+				aElMonthTd[k].className = "";
+			}
+		}
+		this._htElement["month_calendar_textarea"] = jindo.$Element(jindo.cssquery.getSingle("._textarea", this._htElement["month_calendar"]));
+
+		var welImgFont = jindo.$Element(this.option("elImgFont"));
+
+		if (this.option("elPrev")) {
+			this._htElement["elPrev"] = jindo.$Element(this.option("elPrev")).$value();
+		} else if (welImgFont) {
+			this._htElement["elPrev"] = welImgFont.query("._prev");
+		}
+
+		if (this.option("elNext")) {
+			this._htElement["elNext"] = jindo.$Element(this.option("elNext")).$value();
+		} else if (welImgFont) {
+			this._htElement["elNext"] = welImgFont.query("._next");
+		}
+	},
+
+	_setCalendarSelectColor : function(sCalendarSelectColor){
+		if(sCalendarSelectColor&&!jindo.cssquery.getSingle("._calendar_change_select_style")){
+			var sCss = ".uio_calendar .middle td.calendar-selected a,.uio_calendar .middle td.calendar-over a{background-color:"+sCalendarSelectColor+";text-decoration:none}";
+			var elStyle = jindo.$("<style>");
+			jindo.$Element(jindo.$$.getSingle("head")).append(elStyle);
+			if(elStyle.styleSheet){
+				elStyle.styleSheet.cssText= sCss; // IE method
+			}else {
+				jindo.$Element(elStyle).text(sCss); // others
+			}
+ 			jindo.$Element(elStyle).attr("class","_calendar_change_select_style");
+		}
+	},
+	
+	_getBaseElement : function() {
+		var htReturnValue = {
+			'elBase':null,
+			'elSub': null
+		};
+		if (this._htElement["elDate_input"]) {
+			htReturnValue.elBase = this._htElement["elDate_input"];
+			if (this._htElement["elDate_button"]) {
+				htReturnValue.elSub = this._htElement["elDate_button"];
+			}
+		} else {
+			htReturnValue.elBase = this._htElement["elDate_button"];
+		}
+		return htReturnValue;
+	},
+
+	_createDatePicker : function() {
+		jindo.Calendar.setToday(this.option("htToday").nYear, this.option("htToday").nMonth, this.option("htToday").nDate);
+
+		var htElBase = this._getBaseElement();
+
+		if (this._htElement["day_calendar"]) {
+			var  htParam = {
+				'bUseLayerPosition' : true,
+				'Calendar' : {
+					'bDrawOnload' : false,
+					'sTitleFormat' : "yyyy.mm"
+				},
+				'LayerManager' : {
+					'sCheckEvent' : "click",
+					'nShowDelay' : 0,
+					'nHideDelay' : 0
+				},
+				'LayerPosition' :  {
+					sPosition: "outside-bottom",
+					sAlign: "left",
+					nTop: 0,
+					nLeft: 0,
+					bAuto: true
+				},
+				'htCustomEventHandler': {
+					'click': jindo.$Fn(this._checkDatePickerClick, this).bind("day"),
+					'beforeDraw': jindo.$Fn(this._checkBeforeDraw, this).bind(),
+					'afterDraw': jindo.$Fn(this._setCalendarAfterDraw, this).bind(),
+					'select': jindo.$Fn(this._changeDate, this).bind()
+				}
+			};
+			var htLayerPositionParam = this.option("htLayerPosition");
+			for(x in htLayerPositionParam){
+				htParam["LayerPosition"][x] =htLayerPositionParam[x];
+			}
+			var htPickerSet = this._makeDayPickerSet();
+
+			this._htDatePicker["day"] = new jindo.DatePicker(this._htElement["day_calendar"], htParam).addDatePickerSet(htPickerSet);
+
+			this._htPickerSet = htPickerSet;
+
+			this._htDatePicker["day"].getLayerManager().attach({
+				'hide': jindo.$Fn(this._onHideCalendar, this).bind()
+			});
+			this._deactiveDayPicker();
+		}
+
+		if (this._htElement["week_calendar"]) {
+			var htWeekSet = this._makeWeekPickerSet(htElBase.elBase);
+			this._htDatePicker["week"] = new jindo.WeekPicker(this._htElement["week_calendar"], htWeekSet).link(htElBase.elBase);
+			if (htElBase.elSub) {
+				this._htDatePicker["week"].link(htElBase.elSub);
+			}
+			this._htDatePicker["week"].getLayerManager().attach({
+				'hide': jindo.$Fn(this._onHideCalendar, this).bind()
+			});
+			this._htDatePicker["week"].deactivate();
+		}
+
+		if (this._htElement["month_calendar"]) {
+			var htMonthSet = this._makeMonthPickerSet(htElBase.elBase);
+			this._htDatePicker["month"] = new jindo.MonthPicker(this._htElement["month_calendar"], htMonthSet).link(htElBase.elBase);
+			if (htElBase.elSub) {
+				this._htDatePicker["month"].link(htElBase.elSub);
+			}
+			this._htDatePicker["month"].getLayerManager().attach({
+				'hide': jindo.$Fn(this._onHideCalendar, this).bind()
+			});
+			this._htDatePicker["month"].deactivate();
+		}
+	},
+
+	_setDatePicker : function() {
+		jindo.Calendar.setToday(this.option("htToday").nYear, this.option("htToday").nMonth, this.option("htToday").nDate);
+		var htElBase = this._getBaseElement();
+		if (this._htElement["day_calendar"]) {
+			var htPickerSet = this._makeDayPickerSet();
+			this._htDatePicker["day"].removeDatePickerSet(this._htPickerSet);
+			this._htDatePicker["day"].addDatePickerSet(htPickerSet);
+			this._htPickerSet = htPickerSet;
+			this._deactiveDayPicker();
+		}
+
+		if (this._htElement["week_calendar"]) {
+			var htWeekSet = this._makeWeekPickerSet(htElBase.elBase);
+			this._htDatePicker["week"].option(htWeekSet);
+			this._htDatePicker["week"].deactivate();
+		}
+
+		if (this._htElement["month_calendar"]) {
+			var htMonthSet = this._makeMonthPickerSet(htElBase.elBase);
+			this._htDatePicker["month"].option(htMonthSet);
+			this._htDatePicker["month"].deactivate();
+		}
+	},
+
+	_deactiveDayPicker : function() {
+		var aDatePickerSet = this._htDatePicker["day"].getDatePickerSet();
+		for (var i = 0, len = aDatePickerSet.length; i < len; i++) {
+			if (aDatePickerSet[i].elInput) {
+				this._htDatePicker["day"]._wfClickLinkedElement.detach(aDatePickerSet[i].elInput, "click");
+			}
+			if (aDatePickerSet[i].elButton) {
+				this._htDatePicker["day"]._wfClickLinkedElement.detach(aDatePickerSet[i].elButton, "click");
+			}
+		}
+		this._htDatePicker["day"].deactivate();
+	},
+
+	_attachDateElement : function() {
+		if (this._htElement["elDate_input"]) {
+			this._htEventHandler["elDate_input"] = jindo.$Fn(this._onClickDate, this).attach(this._htElement["elDate_input"], "click");
+			this._htEventData["elDate_input"] = {"element" : this._htElement["elDate_input"], "event" : "click"};
+		}
+		if (this._htElement["elDate_button"]) {
+			this._htEventHandler["elDate_button"] = jindo.$Fn(this._onClickDate, this).attach(this._htElement["elDate_button"], "click");
+			this._htEventData["elDate_button"] = {"element" : this._htElement["elDate_button"], "event" : "click"};
+		}
+
+		if (this._htElement["elDate_hour"]) {
+			this._htEventHandler["elDate_hour"] = jindo.$Fn(this._changeDate, this).attach(this._htElement["elDate_hour"], "change");
+			this._htEventData["elDate_hour"] = {"element" : this._htElement["elDate_hour"], "event" : "change"};
+		}
+
+		if (this._htElement["elPrev"]) {
+			this._htEventHandler["elPrev"] = jindo.$Fn(jindo.$Fn(this._moveBlock, this).bind(-1)).attach(this._htElement["elPrev"], "click");
+			this._htEventData["elPrev"] = {"element" : this._htElement["elPrev"], "event" : "click"};
+		}
+
+		if (this._htElement["elNext"]) {
+			this._htEventHandler["elNext"] = jindo.$Fn(jindo.$Fn(this._moveBlock, this).bind(1)).attach(this._htElement["elNext"], "click");
+			this._htEventData["elNext"] = {"element" : this._htElement["elNext"], "event" : "click"};
+		}
+	},
+	/**
+	 * 레이어에서  사용하는 이벤트를 Detach 하는 함수
+	 */
+	_detachEvent :function() {
+		for (var x in this._htEventHandler) {
+			this._htEventHandler[x].detach(this._htEventData[x]["element"], this._htEventData[x]["event"]);
+		}
+	},
+
+	_moveBlock : function(nDirection, weEvent) {
+		if (weEvent) {
+			weEvent.stop();
+			if (!this._bIsActivating) {
+				return false;
+			}
+		}
+		var htMoveDate = null;
+		var htCheckDate = null;
+		switch (this._sPeriod) {
+			case "day":
+				htMoveDate = this._moveDay(this._htBaseDate, nDirection, 1);
+				htCheckDate = this._checkMaxMinDate(htMoveDate);
+				if (!htCheckDate || DateCoreAPI.getDistanceUseDate(this._htBaseDate, htCheckDate) != 0) {
+					this._htBaseDate = htMoveDate;
+					this._setDay(true);
+				}
+				break;
+			case "week":
+				htMoveDate = this._moveDay(this._htBaseDate, nDirection, 7);
+				htCheckDate = this._checkMaxMinDate(htMoveDate);
+				if (!htCheckDate || DateCoreAPI.getDistanceUseDate(this._htBaseDate, htCheckDate) != 0) {
+					this._htBaseDate = htMoveDate;
+					this._setWeek(true);
+				}
+				break;
+			case "month":
+				htMoveDate = this._moveMonth(this._htBaseDate, nDirection, 1);
+				htCheckDate = this._checkMaxMinDate(htMoveDate);
+				if (!htCheckDate || DateCoreAPI.getDistanceUseDate(this._htBaseDate, htCheckDate) != 0) {
+					this._htBaseDate = htMoveDate;
+					this._setMonth(true);
+				}
+				break;
+		}
+	},
+
+	_setQuickToDay : function(weEvent, bIsBlock) {
+		weEvent.stop(jindo.$Event.CANCEL_DEFAULT);
+		if (!this._bIsActivating) {
+			return false;
+		}
+		this._bQuickButtonEvent = true;
+		this._setToDay(bIsBlock);
+	},
+
+	_setToday : function(weEvent) {
+		this._changeSelectedQuickButton("today");
+		this._htBaseDate = DateCoreAPI.getCoreDateFormat(this.option("htToday"));
+		switch (this._sPeriod) {
+			case "day":
+				this._setDay();
+				break;
+			case "week":
+				this._setWeek();
+				break;
+			case "month":
+				this._setMonth();
+				break;
+		}
+	},
+
+	_setQuickDay : function(weEvent, bIsBlock) {
+		weEvent.stop(jindo.$Event.CANCEL_DEFAULT);
+		if (!this._bIsActivating) {
+			return false;
+		}
+		this._bQuickButtonEvent = true;
+		this._setDay(bIsBlock);
+	},
+	_setDay : function(bIsBlock) {
+		this._changeSelectedQuickButton("day");
+		this._sPeriod = "day";
+
+		var htCheckDate = this._checkMaxMinDate(this._htBaseDate);
+		if (htCheckDate) {
+			this._htBaseDate = DateCoreAPI.getCoreDateFormat(htCheckDate);
+		}
+
+		var htBaseDate = (!bIsBlock && this.option("htQuickBaseDate")) ? this.option("htQuickBaseDate") : this._htBaseDate;
+		this._htDatePicker["day"].setDate(this._htPickerSet, htBaseDate);
+
+	},
+
+	_setQuickWeek : function(weEvent, bIsBlock) {
+		weEvent.stop(jindo.$Event.CANCEL_DEFAULT);
+		if (!this._bIsActivating) {
+			return false;
+		}
+		this._bQuickButtonEvent = true;
+		this._setWeek(bIsBlock);
+	},
+
+	_setWeek : function(bIsBlock) {
+
+		this._changeSelectedQuickButton("week");
+		this._sPeriod = "week";
+		var htCheckDate = this._checkMaxMinDate(this._htBaseDate);
+		if (htCheckDate) {
+			this._htBaseDate = DateCoreAPI.getCoreDateFormat(htCheckDate);
+		}
+		var htBaseDate = (!bIsBlock && this.option("htQuickBaseDate")) ? this.option("htQuickBaseDate") : this._htBaseDate;
+		this._htDatePicker["week"].setValue(htBaseDate);
+	},
+
+	_setQuickMonth : function(weEvent, bIsBlock) {
+		weEvent.stop(jindo.$Event.CANCEL_DEFAULT);
+		if (!this._bIsActivating) {
+			return false;
+		}
+		this._bQuickButtonEvent = true;
+		this._setMonth(bIsBlock);
+	},
+
+	_setMonth : function(bIsBlock) {
+		this._changeSelectedQuickButton("month");
+		this._sPeriod = "month";
+
+		var htCheckDate = this._checkMaxMinDate(this._htBaseDate);
+		if (htCheckDate) {
+			this._htBaseDate = DateCoreAPI.getCoreDateFormat(htCheckDate);
+		}
+
+		var htBaseDate = (!bIsBlock && this.option("htQuickBaseDate")) ? this.option("htQuickBaseDate") : this._htBaseDate;
+		this._htDatePicker["month"].setValue(htBaseDate);
+	},
+
+
+	_changeSelectedQuickButton : function(sQuickType) {
+		if (this._htElement["elQuick"]) {
+			this.removeSelectedQuickButton();
+			var sNewSelectName = "quick_" + sQuickType;
+			if (this._htElement[sNewSelectName]) {
+				this._htElement[sNewSelectName].addClass("on");
+			}
+		}
+	},
+
+	removeSelectedQuickButton : function() {
+		var elOn = this._htElement["elQuick"].query("li.on");
+		if (elOn) {
+			jindo.$Element(elOn).removeClass("on");
+		}
+	},
+
+	_isCanCalendarMove : function(htDate) {
+		var bReturnValue = true;
+		var nDate = DateCoreAPI.getDateOfMonth(htDate.nYear, htDate.nMonth);
+		var htStartDate = DateCoreAPI.oCoreDate(htDate.nYear, htDate.nMonth, 1);
+		var htEndDate = DateCoreAPI.oCoreDate(htDate.nYear, htDate.nMonth, nDate);
+		var htSelectableDateFrom = null;
+		var htSelectableDateTo = null;
+		if (this.option("htSelectableDateFrom")) {
+			htSelectableDateFrom = (this._sPeriod == "month") ? DateCoreAPI.oCoreDate(this.option("htSelectableDateFrom").nYear, 1, 1) : DateCoreAPI.getCoreDateFormat(this.option("htSelectableDateFrom"));
+		}
+		if (this.option("htSelectableDateTo")) {
+			htSelectableDateTo = (this._sPeriod == "month") ? DateCoreAPI.oCoreDate(this.option("htSelectableDateTo").nYear, 12, 31) : DateCoreAPI.getCoreDateFormat(this.option("htSelectableDateTo"));
+		}
+		if ((htSelectableDateFrom && DateCoreAPI.getDistanceUseDate(htSelectableDateFrom, htEndDate) < 0) || (htSelectableDateTo && DateCoreAPI.getDistanceUseDate(htStartDate, htSelectableDateTo) < 0)) {
+			bReturnValue = false;
+		}
+		return bReturnValue;
+	},
+
+	_moveDay : function(htBaseDate, nDirection, nRange) {
+		var dTmpDate = DateCoreAPI.getJavascriptDateFormat(htBaseDate);
+		dTmpDate.setDate(htBaseDate.nDate + (nRange * nDirection));
+		var htTargetDate = DateCoreAPI.getCoreDateFormat(dTmpDate);
+		return htTargetDate;
+	},
+
+	_moveYear : function(htBaseDate, nDirection, nRange) {
+		var nMoveDate = DateCoreAPI.getDateOfMonth(htBaseDate.nYear + (nDirection * nRange), htBaseDate.nMonth);
+		if (nMoveDate > htBaseDate.nDate) {
+			nMoveDate = htBaseDate.nDate;
+		}
+		var dTmpDate = new Date(htBaseDate.nYear + (nDirection * nRange), htBaseDate.nMonth - 1, nMoveDate);
+		var htReturnDate = DateCoreAPI.getCoreDateFormat(dTmpDate);
+		return htReturnDate;
+	},
+
+	_moveMonth : function(htBaseDate, nDirection, nRange) {
+		var nMoveDate = DateCoreAPI.getDateOfMonth(htBaseDate.nYear, htBaseDate.nMonth + (nDirection * nRange));
+		if (nMoveDate > htBaseDate.nDate) {
+			nMoveDate = htBaseDate.nDate;
+		}
+		var dTmpDate = new Date(htBaseDate.nYear, (htBaseDate.nMonth + (nDirection * nRange)) - 1, nMoveDate);
+		var htReturnDate = DateCoreAPI.getCoreDateFormat(dTmpDate);
+		return htReturnDate;
+	},
+
+	_setCalendarMoveClass : function(bDisable, el) {
+		var wel = jindo.$Element(el);
+		wel.removeClass("off");
+		if (!bDisable) {
+			wel.addClass("off");
+		}
+	},
+
+
+	/**
+	 * 컴포넌트를 활성화한다.
+	 */
+	_onActivate : function() {
+		if (this._htElement["elDate_input"]) {
+			this._htElement["elDate_input"].disabled = false;
+		}
+		if (this._htElement["elDate_button"]) {
+			this._htElement["elDate_button"].disabled = false;
+		}
+		if (this._htElement["elDate_hour"]) {
+			this._htElement["elDate_hour"].disabled = false;
+		}
+	},
+
+	/**
+	 * 컴포넌트를 비활성화한다.
+	 */
+	_onDeactivate : function() {
+		if (this._htElement["elDate_input"]) {
+			this._htElement["elDate_input"].disabled = true;
+		}
+		if (this._htElement["elDate_button"]) {
+			this._htElement["elDate_button"].disabled = true;
+		}
+		if (this._htElement["elDate_hour"]) {
+			this._htElement["elDate_hour"].disabled = true;
+		}
+	},
+
+	_onClickDate : function(weEvent) {
+		weEvent.stop(jindo.$Event.CANCEL_DEFAULT);
+		if (this._bIsActivating) {
+			var htDateValue = this.getValue();
+			var htResult = {
+				'sDateType' : this._sPeriod,
+				'htStartDate' : htDateValue.htStartDate,
+				'htEndDate' : htDateValue.htEndDate,
+				'weEvent' : weEvent
+			};
+			if (this._bForce || this.fireEvent("click", htResult)) {
+				this._bForce = false;
+				this._sShowPeriod = this._sPeriod;
+				this._htDatePicker[this._sPeriod].activate();
+
+				if (this._sPeriod == "day") {
+					this._htDatePicker["day"]._onClickLinkedElement(weEvent);
+				} else {
+					this._htDatePicker[this._sShowPeriod]._onClickButton(weEvent);
+				}
+			}
+		}
+	},
+
+	_onHideCalendar : function(oCustomEvent) {
+		if (this._sShowPeriod) {
+			this._htDatePicker[this._sShowPeriod].deactivate();
+		}
+	},
+
+	_checkDatePickerClick : function(sPeriod, oCustomEvent) {
+		var htDatePickerSet = null;
+		switch (this._sPeriod) {
+			case "day":
+				htDatePickerSet = this._htDatePicker["day"].getDate(this._htPickerSet);
+				break;
+			case "week":
+				htDatePickerSet = this._htDatePicker["week"].getValue()[0];
+				break;
+			case "month":
+				htDatePickerSet = DateCoreAPI.getCoreDateFormat(this._htDatePicker["month"].getValue());
+				break;
+		}
+		var htDate = DateCoreAPI.getCoreDateFormat(htDatePickerSet);
+		if (!this._isCanCalendarMove(htDate)) {
+			oCustomEvent.stop();
+		}
+	},
+
+	_checkBeforeDraw : function(oCustomEvent) {
+		var htDate = DateCoreAPI.getCoreDateFormat(oCustomEvent);
+		if (!this._isCanCalendarMove(htDate)) {
+			oCustomEvent.stop();
+		}
+
+		switch (this._sPeriod) {
+			case "day":
+				if (this.option("htCalendarText").day == "") {
+					this._htElement["day_calendar_textarea"].hide();
+				} else {
+					this._htElement["day_calendar_textarea"].html(this.option("htCalendarText").day).show();
+				}
+				break;
+			case "week":
+				if (this.option("htCalendarText").week == "") {
+					this._htElement["week_calendar_textarea"].hide();
+				} else {
+					this._htElement["week_calendar_textarea"].html(this.option("htCalendarText").week).show();
+				}
+				break;
+			case "month":
+				if (this.option("htCalendarText").month == "") {
+					this._htElement["month_calendar_textarea"].hide();
+				} else {
+					this._htElement["month_calendar_textarea"].html(this.option("htCalendarText").month).show();
+				}
+				break;
+		}
+
+		var oCalendar = this._htDatePicker[this._sPeriod].getCalendar();
+		var elCalendar = oCalendar.getBaseElement();
+		var sClassName = oCalendar.option("sClassPrefix") + "over";
+		var aDateElement = jindo.cssquery("." + sClassName, elCalendar);
+		for (var i = 0,nLen = aDateElement.length; i < nLen; i++) {
+			jindo.$Element(aDateElement[i]).removeClass(sClassName);
+		}
+	},
+	_setCalendarAfterDraw : function(oCustomEvent) {
+		var oCalendar = this._htDatePicker[this._sPeriod].getCalendar();
+		var htDate = DateCoreAPI.getCoreDateFormat(oCustomEvent);
+		this._setCalendarMoveClass(this._isCanCalendarMove(this._moveYear(htDate, -1, 1)), oCalendar.elBtnPrevYear);
+		if (oCalendar.elBtnPrevMonth) {
+			this._setCalendarMoveClass(this._isCanCalendarMove(this._moveMonth(htDate, -1, 1)), oCalendar.elBtnPrevMonth);
+		}
+		if (oCalendar.elBtnNextMonth) {
+			this._setCalendarMoveClass(this._isCanCalendarMove(this._moveMonth(htDate, 1, 1)), oCalendar.elBtnNextMonth);
+		}
+		this._setCalendarMoveClass(this._isCanCalendarMove(this._moveYear(htDate, 1, 1)), oCalendar.elBtnNextYear);
+
+		if ((this._sPeriod == "day" || this._sPeriod == "week") && (this.option("bUseHighlight") || this.option("bUseUnselectDate"))) {
+			var htCalendarStartDate = DateCoreAPI.getDateUseDistance(htDate, -DateCoreAPI.getStartDayIndexOfMonth(htDate.nYear, htDate.nMonth, 0, 0));
+			var nCalendarDateLength = jindo.Calendar.getWeeks(htDate.nYear, htDate.nMonth) * 7;
+			var aDateList = DateCoreAPI.getDateList(htCalendarStartDate, nCalendarDateLength);
+			var aDateElement = jindo.cssquery("td", oCalendar.elWeekAppendTarget);
+			var sDate = null;
+			for (var i = 0,nLen = aDateList.length; i < nLen; i++) {
+				sDate = DateCoreAPI.getCustomDateFormat(aDateList[i], "yyyy-mm-dd");
+				if (this._htUnselectList[sDate]) {
+					jindo.$Element(aDateElement[i]).addClass(oCalendar.option("sClassPrefix") + "unselectable");
+				}
+				if (this._htHighlightList[sDate]) {
+					jindo.$Element(aDateElement[i]).addClass(oCalendar.option("sClassPrefix") + "highlight");
+				}
+			}
+		}
+	},
+
+	_changeDate : function(oCustomEvent) {
+		var htPickerStartDate = null;
+		var htPickerEndDate = null;
+		switch (this._sPeriod) {
+			case "day":
+				htPickerStartDate = this._htDatePicker["day"].getDate(this._htPickerSet);
+				htPickerEndDate = this._htDatePicker["day"].getDate(this._htPickerSet);
+				break;
+			case "week":
+				var aDate = this._htDatePicker["week"].getValue();
+				htPickerStartDate = aDate[0];
+				htPickerEndDate = aDate[1];
+				break;
+			case "month":
+				htPickerStartDate = DateCoreAPI.getCoreDateFormat(this._htDatePicker["month"].getValue());
+				if (htPickerStartDate) {
+					var nDate = DateCoreAPI.getDateOfMonth(htPickerStartDate.nYear, htPickerStartDate.nMonth);
+					htPickerEndDate = DateCoreAPI.oCoreDate(htPickerStartDate.nYear, htPickerStartDate.nMonth, nDate);
+				}
+				break;
+		}
+
+		if (!htPickerStartDate || !htPickerEndDate) {
+			return false;
+		}
+
+		var nStartHour = (this._htElement["elDate_hour"]) ? parseInt(this._htElement["elDate_hour"].value, 10) : 0;
+		var htStartDate = DateCoreAPI.oCoreDate(htPickerStartDate.nYear, htPickerStartDate.nMonth, htPickerStartDate.nDate, 0, nStartHour);
+		var htEndDate = DateCoreAPI.oCoreDate(htPickerEndDate.nYear, htPickerEndDate.nMonth, htPickerEndDate.nDate, 0, 23);
+
+		var htCheckStartDate = this._checkMaxMinDate(htStartDate);
+		if (htCheckStartDate) {
+			if (this._htElement["elDate_hour"]) {
+				this._htElement["elDate_hour"].value = htCheckStartDate.nHour;
+			}
+			htStartDate = DateCoreAPI.getCoreDateFormat(htCheckStartDate);
+		}
+		var htCheckEndDate = this._checkMaxMinDate(htEndDate);
+		if (htCheckEndDate) {
+			htEndDate = DateCoreAPI.getCoreDateFormat(htCheckEndDate);
+		}
+
+		this._htCalendarStartDate = htStartDate;
+		this._htCalendarEndDate = htEndDate;
+
+		switch (this._sPeriod) {
+			case "day":
+				if (this.option("elImgFont")) {
+					this._oPeriodDisplay.set(htStartDate);
+				}
+				break;
+			case "week":
+				if (this.option("elImgFont")) {
+					this._oPeriodDisplay.set(htStartDate, htEndDate);
+				}
+				if (this._htElement["elDate_input"]) {
+					this._htElement["elDate_input"].value = DateCoreAPI.getCustomDateFormat(htStartDate, this.option("sDateFormat")) + " - " + DateCoreAPI.getCustomDateFormat(htEndDate, this.option("sDateFormat"));
+				}
+				break;
+			case "month":
+				var htMonth = {
+					'nYear':htStartDate.nYear,
+					'nMonth':htStartDate.nMonth
+				};
+				if (this.option("elImgFont")) {
+					this._oPeriodDisplay.set(htMonth);
+				}
+				if (this._htElement["elDate_input"]) {
+					var sMonthText = DateCoreAPI.getCustomDateFormat(htMonth, this.option("sDateFormat"));
+					sMonthText = sMonthText.replace("NaN", "");
+					this._htElement["elDate_input"].value = sMonthText;
+				}
+				break;
+		}
+
+		var htDateValue = this.getValue();
+		var htResult = {
+			'sDateType' : this._sPeriod,
+			'htStartDate' : htDateValue.htStartDate,
+			'htEndDate' : htDateValue.htEndDate,
+			'bQuickButtonEvent' : this._bQuickButtonEvent ,
+			'oCustomEvent' : oCustomEvent
+		};
+		this.fireEvent("change", htResult);
+		this._bQuickButtonEvent = false;
+	},
+
+
+	_checkMaxMinDate : function(htBaseDate) {
+		var htChangeDate = null;
+		if (this.option("htSelectableDateFrom") && DateCoreAPI.getDistanceUseDateTime(this.option("htSelectableDateFrom"), htBaseDate) < 0) {
+			htChangeDate = DateCoreAPI.getCoreDateFormat(this.option("htSelectableDateFrom"));
+		} else if (this.option("htSelectableDateTo") && DateCoreAPI.getDistanceUseDateTime(htBaseDate, this.option("htSelectableDateTo")) < 0) {
+			htChangeDate = DateCoreAPI.getCoreDateFormat(this.option("htSelectableDateTo"));
+		}
+		return htChangeDate;
+	},
+
+	/**
+	 * @param {HashTable}	htOption	옵션값. 변경하고 싶은 값만 적어야 한다.
+	 * "vToday"					// (선택) 오늘날짜. 넘기지 않으면 현재 유지
+	 * "vDate"					// (선택) 처음 적용될 날짜. 입력은 5가지 형식(javascript Date,{nYear:2010,nMonth:1,nDate:13,nHour:14,nMinute:13,nSecond:0},"2010-01-13 14:13:00","2010.01.13 14:13:00","20100113141300")으로 받을 수 있음,
+	 * "vSelectableDateFrom"	// (선택) 달력 앞쪽 제한 날짜. 입력은 5가지 형식(javascript Date,{nYear:2010,nMonth:1,nDate:13,nHour:14,nMinute:13,nSecond:0},"2010-01-13 14:13:00","2010.01.13 14:13:00","20100113141300")으로 받을 수 있음
+	 * "vSelectableDateTo"		 // (선택) 달력 뒤쪽 제한 날짜. 입력은 5가지 형식(javascript Date,{nYear:2010,nMonth:1,nDate:13,nHour:14,nMinute:13,nSecond:0},"2010-01-13 14:13:00","2010.01.13 14:13:00","20100113141300")으로 받을 수 있음
+	 * "sDateFormat"			// (선택) 날짜 inputbox에 들어가는 날짜 형식.
+	 * "vQuickBaseDate"			// (선택) quick 버튼이 동작할 기준이 되는 날짜. 이 날짜가 포함된 일, 주, 월로 이동한다.
+	 * "bUseHighlight"			// (선택) 달력에 Highlight 표시를 사용여부. 사용할 경우 true
+	 * "aHighlightDateList"		// (선택) highlight 될 날짜들의 배열 [{htDateList},{htDateList},...]
+	 *						 htDateList ={
+	 *							 vStartDate:블럭 시작 날짜
+	 *							 vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 *							 nLength : 시작일 포함 블럭 길이
+	 *						 }
+	 * "bUseUnselectDate" : false			// (선택) 달력에 선택 안됨 표시를 사용여부. 사용할 경우 true
+	 * "aUnselectBlockList" : null		// (선택) unselectable 될 날짜들의 배열 [{htDateList},{htDateList},...]
+	 *											 htDateList ={
+	 *														 vStartDate:블럭 시작 날짜
+	 *														 vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 *														 nLength : 시작일 포함 블럭 길이
+	 *											 }
+	 * "htCalendarText"			//(선택) 달력에 나오는 Text, 일, 주, 월 달력 별로 지정 가능, text를 아예 노출하지 않아야 하면 ""로 값을 세팅
+	 *						 htCalendarText = {
+	 *							 'day'	:	this._DAY_CALENDAR_TEMPLATE_TEXTAREA,	// "<span>일간 : 최근 3개월이내</span>"
+	 *							 'week'	:	this._WEEK_CALENDAR_TEMPLATE_TEXTAREA,	// "<span>주간 : 최근 15주이내 선택가능</span>"
+	 *							 'month'	:	this._MONTH_CALENDAR_TEMPLATE_TEXTAREA	// "<span>월간 : 모든 기간 선택 가능</span>"
+	 *						 }
+	 * "bUseMinusSecond" : true		// (선택) 결과값 반환시 EndDate값을 -1초한 것으로 반환할지 여부   ture:-1초 사용
+	 */
+	setOption : function(htOption) {
+		this.option(this._setPreOption(htOption, false));
+		if (htOption.vDate) {
+			this._htBaseDate = this.option("htDate");
+		} else {
+			this.option("htDate", DateCoreAPI.getCoreDateFormat(this._htBaseDate));
+		}
+		if (!this.option("bUseTime")) {
+			this._setNotUseTime();
+		}
+		if (this.option("bUseHighlight") && this.option("aHighlightDateList")) {
+			this.setHighlight(this.option("aHighlightDateList"));
+		}
+		if (this.option("bUseUnselectDate") && this.option("aUnselectDateList")) {
+			this.setUnselectDate(this.option("aUnselectDateList"));
+		}
+		this._setDatePicker();
+		this._changeDate();
+	},
+
+	/**
+	 * 날짜와 달력 형태를 세팅하는 함수
+	 * @param {Variant}	vDate	적용될 시작날짜. 입력은 5가지 형식(javascript Date,{nYear:2010,nMonth:1,nDate:13,nHour:14,nMinute:13,nSecond:0},"2010-01-13 14:13:00","2010.01.13 14:13:00","20100113141300")으로 받을 수 있음,
+	 * @param {String}	sType	적용될 달력 형태 ("day","week","month")중 선택
+	 */
+	setValue : function(vDate, sType) {
+		this._htCalendarStartDate = DateCoreAPI.getCoreDateFormat(vDate);
+		this._htBaseDate = DateCoreAPI.getCoreDateFormat(vDate);
+		if (this._htElement["elDate_hour"]) {
+			this._htElement["elDate_hour"].value = this._htCalendarStartDate.nHour;
+		}
+		switch (sType) {
+			case "day":
+				this._setDay();
+				break;
+			case "week":
+				this._setWeek();
+				break;
+			case "month":
+				this._setMonth();
+				break;
+		}
+		return this;//이걸 왜 여기에서 반환할까?? 만든 내가 모르겠네..
+	},
+
+	/**
+	 * 시작, 종료일 값을 반환하는 함수
+	 * @return {HashTable}	{htStartDate :시작 날짜 값,htEndDate:종료 날짜 값} 화면의 값을 반환한다.
+	 * htStartDate :{nYear,nMonth,nDate,nHour,nMinute,nSecond}형식
+	 * htEndDate :{nYear,nMonth,nDate,nHour,nMinute,nSecond}형식, 종료날짜의 23:59:59로 세팅된다.
+	 */
+	getValue : function() {
+		var htStartDate = DateCoreAPI.getCoreDateFormat(this._htCalendarStartDate);
+		var htEndDate = DateCoreAPI.getCoreDateFormat(this._htCalendarEndDate);
+		htEndDate.nHour = 23;
+		htEndDate.nMinute = 59;
+		htEndDate.nSecond = 59;
+		if (!this.option("bUseMinusSecond")) {
+			htEndDate = DateCoreAPI.getSolarDateUseDistanceTimeSecond(htEndDate, 1);
+		}
+		var htReturnValue = {
+			'htStartDate' : htStartDate,
+			'htEndDate' : htEndDate
+		};
+		return htReturnValue;
+	},
+
+	/**
+	 * 시작 종료일을 원하는 String 포멧으로 반환하는 함수
+	 * @param {String}	sFormat	사용자 정의 포멧
+	 * - yyyy : 4자리 년도 ex)2009
+	 * - yy : 2자리 년도 ex)09
+	 * - mm : 2자리 월 ex)09,10
+	 * - m : 1자리 월 ex)9, 10
+	 * - dd : 2자리 일 ex)09, 10
+	 * - d : 1자리 일 ex)9, 10
+	 * - hh : 2자리 12시간 시 ex)오전 09, 오후 10
+	 * - h : 1자리 12시간 시 ex)오전 9, 오후 10
+	 * - HH : 2자리 24시간 시 ex) 09, 17
+	 * - H : 1자리 24시간 시 ex) 9, 17
+	 * - ii: 2자리 분 ex)09, 10
+	 * - i : 1자리 분 ex)9, 10
+	 * - ss: 2자리 초 ex)09, 10
+	 * - s : 1자리 초 ex)9, 10
+	 * - D: 요일 표시 ex) 월, 화
+	 * @return {HashTable}	{sStartDate :시작 날짜 값,sEndDate:종료 날짜 값} 화면의 값을 반환한다.
+	 *		 종료날짜의 23:59:59로 세팅된다.
+	 */
+	getText : function(sFormat) {
+		var htValue = this.getValue();
+		var htReturnValue = {
+			"sStartDate" : DateCoreAPI.getCustomDateFormat(htValue.htStartDate, sFormat),
+			"sEndDate" : DateCoreAPI.getCustomDateFormat(htValue.htEndDate, sFormat)
+		};
+		return htReturnValue;
+	},
+
+	/**
+	 * Highlight를 설정할 날짜들을 세팅한다. 이미 설정된 날짜들이 있으면 모두 지우고 새로 세팅한다.
+	 * @param {Array}	aDateList	htDateList 형식의 배열
+	 * htDateList ={
+	 * vStartDate:블럭 시작 날짜
+	 * vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 * nLength : 시작일 포함 블럭 길이
+	 * }
+	 */
+	setHighlight : function(aDateList) {
+		this._htHighlightList = this._makeDateList(aDateList);
+	},
+	/**
+	 * Highlight를 설정할 날짜들을 추가한다.
+	 * @param {Array}	aDateList	htDateList 형식의 배열
+	 * htDateList ={
+	 * vStartDate:블럭 시작 날짜
+	 * vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 * nLength : 시작일 포함 블럭 길이
+	 * }
+	 */
+	addHighlight : function(aDateList) {
+		var htList = this._makeDateList(aDateList);
+		for (var x in htList) {
+			if (!this._htHighlightList[x]) {
+				this._htHighlightList[x] = true;
+			}
+		}
+	},
+	/**
+	 * Highlight가 설정된 날짜들 중 파라미터로 넘어온 날짜의 설정을 지운다. 파라미터를 넘기지 않으면 모두 지운다.
+	 * @param {Array}	aDateList	htDateList 형식의 배열
+	 * htDateList ={
+	 * vStartDate:블럭 시작 날짜
+	 * vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 * nLength : 시작일 포함 블럭 길이
+	 * }
+	 */
+	removeHighlight : function (aDateList) {
+		if (aDateList) {
+			var htList = this._makeDateList(aDateList);
+			for (var x in htList) {
+				if (this._htHighlightList[x]) {
+					delete this._htHighlightList[x];
+				}
+			}
+		} else {
+			this._htHighlightList = {};
+		}
+	},
+	/**
+	 * Highlight가 설정된 날짜를 반환한다.
+	 * @return {HashTable}	{'2011-04-30':true,....'날짜':true 형식}
+	 */
+	getHighlight : function() {
+		return this._htHighlightList;
+	},
+
+	/**
+	 * unselectable 설정할 날짜들을 세팅한다. 이미 설정된 날짜들이 있으면 모두 지우고 새로 세팅한다.
+	 * @param {Array}	aDateList	htDateList 형식의 배열
+	 * htDateList ={
+	 * vStartDate:블럭 시작 날짜
+	 * vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 * nLength : 시작일 포함 블럭 길이
+	 * }
+	 */
+	setUnselectDate : function(aDateList) {
+		this._htUnselectList = this._makeDateList(aDateList);
+	},
+
+	/**
+	 * Disable를 설정할 날짜들을 추가한다.
+	 * @param {Array}	aDateList	htDateList 형식의 배열
+	 * htDateList ={
+	 * vStartDate:블럭 시작 날짜
+	 * vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 * nLength : 시작일 포함 블럭 길이
+	 * }
+	 */
+	addUnselectDate : function(aDateList) {
+		var htList = this._makeDateList(aDateList);
+		for (var x in htList) {
+			if (!this._htUnselectList[x]) {
+				this._htUnselectList[x] = true;
+			}
+		}
+	},
+	/**
+	 * unselectable이 설정된 날짜들 중 파라미터로 넘어온 날짜의 설정을 지운다. 파라미터를 넘기지 않으면 모두 지운다.
+	 * @param {Array}	aDateList	htDateList 형식의 배열
+	 * htDateList ={
+	 * vStartDate:블럭 시작 날짜
+	 * vEndDate : 블럭 종료 날짜 (nLength과 둘중 하나만 사용, 둘다 사용시 vEndDate우선)
+	 * nLength : 시작일 포함 블럭 길이
+	 * }
+	 */
+	removeUnselectDate : function (aDateList) {
+		if (aDateList) {
+			var htList = this._makeDateList(aDateList);
+			for (var x in htList) {
+				if (this._htUnselectList[x]) {
+					delete this._htUnselectList[x];
+				}
+			}
+		} else {
+			this._htUnselectList = {};
+		}
+	},
+
+	/**
+	 * unselectable이 설정된 날짜를 반환한다.
+	 * @return {HashTable}	{'2011-04-30':true,....'날짜':true 형식}
+	 */
+	getUnselectDate : function() {
+		return this._htUnselectList;
+	},
+
+	_findDateList : function(htDateList) {
+		var nLength = 1;
+		var htStartDate = DateCoreAPI.getCoreDateFormat(htDateList.vStartDate);
+		if (htDateList.vEndDate) {
+			var htEndDate = DateCoreAPI.getCoreDateFormat(htDateList.vEndDate);
+			nLength = DateCoreAPI.getDistanceUseDate(htStartDate, htEndDate) + 1;
+		} else if (htDateList.nLength) {
+			nLength = htDateList.nLength;
+		}
+		var aDateList = DateCoreAPI.getDateList(htStartDate, nLength);
+		return aDateList;
+	},
+
+	_makeDateList : function (aDateList) {
+		var htDateList = {};
+		var aPreDateList = null;
+		var sDate = null;
+		for (var i = 0,nLen = aDateList.length; i < nLen; i++) {
+			aPreDateList = this._findDateList(aDateList[i]);
+			for (var j = 0,nLen2 = aPreDateList.length; j < nLen2; j++) {
+				sDate = DateCoreAPI.getCustomDateFormat(aPreDateList[j], "yyyy-mm-dd");
+				if (!htDateList[sDate]) {
+					htDateList[sDate] = aPreDateList[j];
+				}
+			}
+		}
+		return htDateList;
+	},
+
+	/**
+	 * 캘린더를 노출시키는 함수
+	 * @param {String}	sDateType "start","end" 둘중 1개를 받아야 한다.
+	 */
+	showCalendar : function() {
+		this._bForce = true;
+		var htElBase = this._getBaseElement();
+		jindo.$Element(htElBase.elBase).fireEvent("click");
+	},
+
+	/**
+	 * input box의 날짜를 안보이게 하는 함수
+	 * @param {String}	sDateType "start","end", 없으면 둘다 지운다.
+	 */
+	hideDate : function() {
+		if (this._htElement["elDate_input"]) {
+			this._htElement["elDate_input"].value = "";
+		}
+	},
+
+	getPeriod : function() {
+		return this._sPeriod;
+	}
+}).extend(jindo.UIComponent);

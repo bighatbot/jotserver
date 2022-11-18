@@ -1,0 +1,356 @@
+if ( typeof nmp == "undefined" ) {
+	nmp = {};
+};
+
+if ( typeof nmp.component == "undefined") {
+	nmp.component = {};
+};
+
+nmp.component.OrderProductCalculator = jindo.$Class({
+	_orderProducts : null,
+	_deliveryGroup : null,
+	_calculator : null,
+	_isAssumption : false,
+	_mainItemIds : null,
+	$init : function() {
+		this._orderProducts = [];
+		this._deliveryGroup = [];
+		this._discounts = {};
+		this._mainItemIds = {};
+		this._calculator = new nmp.component.Calculator();
+	},
+	setAssumption : function() {
+		this._isAssumption = true;
+	},
+	_clear : function() {
+		this._orderProducts = [];
+		this._deliveryGroup = [];
+		this._discounts = {};
+		this._mainItemIds = {};
+		this._isAssumption = false;
+		this._calculator = new nmp.component.Calculator();
+	},
+	_generateItemId : function(orderProduct, item) {
+		return orderProduct.id + "_" + item.id;
+	},
+	addOrderProduct : function(orderProduct) {
+		$A(orderProduct.items).forEach(function(item) {
+			if (!orderProduct.purchasable || !item.purchasable) {
+				$A.Continue();
+			}
+
+			var deliveryGroup = orderProduct.deliveryGroup || {};
+
+			var newItem = {
+				"id" : this._generateItemId(orderProduct, item),
+				"orderProductId" : orderProduct.id, // optional
+				"itemId" : item.id, // optional
+				"merchantNo" : orderProduct.merchantNo,
+				"productId" : orderProduct.productId,
+				"quantity" : item.quantity,
+				"orderAmount" : item.orderAmount,
+				"deliveryFeeId" : deliveryGroup.id,
+				"serviceType" : orderProduct.serviceType,
+				"getMainItemId" : $Fn(function() {
+					return this._mainItemIds[orderProduct.id];
+				}, this).bind()
+			};
+
+			if (item.type == "SUPPLEMENTED") {
+				newItem["supplemented"] = true;
+				newItem["salePrice"] = item.price;
+				newItem["optionPrice"] = 0;
+			} else {
+				newItem["salePrice"] = orderProduct.salePrice;
+				newItem["optionPrice"] = item.price;
+
+				this._mainItemIds[orderProduct.id] = this._mainItemIds[orderProduct.id] || item.id;
+			}
+
+			this._calculator.addItem(newItem);
+
+			if (deliveryGroup.id != null && !this._calculator.hasDeliveryFee(deliveryGroup.id)) {
+				var newDeliveryFee = {
+					"id" : deliveryGroup.id,
+					"fee" : deliveryGroup.fee,
+					"appliedExtraAreaFee" : deliveryGroup.appliedExtraAreaFee,
+					"deliveryFeePayType" : deliveryGroup.deliveryFeePayType
+				};
+
+				this._calculator.addDeliveryFee(newDeliveryFee);
+			}
+			
+			if (this._calculator.hasDeliveryFee(deliveryGroup.id) && deliveryGroup.discount != undefined) {
+				var basePolicy = this._getDiscountPolicy(deliveryGroup.id, deliveryGroup.discount);
+				this._calculator.addDeliveryDiscount(basePolicy);
+			}
+		}, this);
+		this._orderProducts.push(orderProduct);
+		
+		this._addBenefits(orderProduct);
+	},
+	addStoreDiscount : function(merchantNo, storeDiscount) {
+		if (storeDiscount == null) {
+			this._calculator.removeStoreDiscount(merchantNo);
+		} else {
+            basePolicy = this._getDiscountPolicy(merchantNo, storeDiscount);
+            this._calculator.addStoreDiscount(basePolicy);
+		}
+	},
+	addOrderDiscount : function(orderDiscount) {
+		if (orderDiscount != null) {
+			var basePolicy = this._getDiscountPolicy("orderDiscount", orderDiscount);
+			this._calculator.addOrderDiscount(basePolicy);
+		}
+	},
+	addIdPerIssuedImmediateDiscount : function(idPerIssuedImmediateDiscount) {
+		this._calculator.addIdPerIssuedImmediateDiscount(idPerIssuedImmediateDiscount);
+	},
+	_getOrderProduct : function(orderProductId) {
+		var orderProducts = $A(this._orderProducts).filter(function(orderProduct) {
+			orderProduct.id == orderProductId;
+		});
+		return orderProducts != null ? orderProducts.shift : null;
+	},
+	_getDiscountPolicy : function(targetId, htDiscount, applyCountUsable) {
+		if (targetId == "orderDiscount" || (htDiscount != null && htDiscount.discountPolicy.discountType == "STORE_DISCOUNT")) {
+			return {
+				"targetId": targetId,
+				"type": htDiscount.discountPolicy.discountUnit,
+				"value": htDiscount.discountPolicy.discountValue,
+				"limit": htDiscount.discountPolicy.maxAmount,
+				"minProductsPayAmount": htDiscount.discountPolicy.minProductsPayAmount,
+				"appliedItemIdSet": htDiscount.discountPolicy.appliedItemIdSet
+			};
+		} else {
+			var policy = {
+				"targetId" : targetId,
+				"type" : htDiscount.discountPolicy.discountUnit,
+				"value" : htDiscount.discountPolicy.discountValue,
+				"limit" : htDiscount.discountPolicy.maxAmount,
+				"minOrderUnit" : htDiscount.discountPolicy.minOrderUnit,
+				"minOrderValue" : htDiscount.discountPolicy.minOrderValue,
+				"policyNo" : htDiscount.discountPolicy.policyNo
+			};
+
+			if (htDiscount.discountPolicy.discountType == "MULTI_PURCHASE_DISCOUNT") {
+				policy.multiplePurchaseDiscountType = htDiscount.discountPolicy.multiplePurchaseDiscountType;
+			}
+
+			if ( applyCountUsable ) {
+				policy.applyCount = htDiscount.applyCount;
+			}
+			return policy;
+		}
+	},
+	_isDicountAvailable : function(discount) {
+		return discount != undefined && discount.discountPolicy != null && (discount.discountPolicy.discountType == "MULTI_PURCHASE_DISCOUNT" || discount.discountPolicy.policyNo) && discount.available;
+	},
+	_addBenefits : function(orderProduct) {
+		var aSellerImmediateDiscounts = [];
+		var aSellerProductDiscounts = [];
+		var aManagerImmediateDiscounts = [];
+		var aManagerProductDiscounts = [];
+		var aSubscribeDiscounts = [];
+		var aDuplicateProductDiscounts = [];
+		var aMultiPurchaseDiscounts = [];
+		
+		$A(orderProduct.items).forEach($Fn(function(item) {
+			if (item.type == "SUPPLEMENTED") {
+				$A.Continue();
+			}
+			
+			var discounts = null;
+			var applyCountUsable = false;
+			// 즉시할인 적용 가정 계산시에는 applyCount적용 안함
+			if ( item.current != null ) {
+				discounts = item.current.discounts;
+				
+				if (!this._isAssumption) {
+					applyCountUsable = true;
+				}
+			} else if ( orderProduct.benefits != null && orderProduct.benefits.current != null ){
+				discounts = orderProduct.benefits.current.discounts;
+				// 장바구니에서는 applyCount적용 안됨
+				applyCountUsable = false;
+			}
+			
+			if (discounts == null) {
+				$A.Continue();
+			}
+			
+			// 판매자 즉시할인
+			var sellerImmediateDiscount = this._getDiscountByType(discounts, "SELLER_IMMEDIATE_DISCOUNT");
+			if (this._isDicountAvailable(sellerImmediateDiscount)) {
+				var basePolicy = this._getDiscountPolicy(this._generateItemId(orderProduct, item), sellerImmediateDiscount, applyCountUsable);
+				if (applyCountUsable && item.current.sellerImmediateDiscount && item.current.sellerImmediateDiscount.applyCount) {
+					basePolicy.applyCount = item.current.sellerImmediateDiscount.applyCount;
+				}
+				aSellerImmediateDiscounts.push(basePolicy);
+			}
+			
+			// 판매자 상품할인
+			var sellerProductDiscount = this._getDiscountByType(discounts, "SELLER_PRODUCT_DISCOUNT");
+			if (this._isDicountAvailable(sellerProductDiscount)) {
+				var basePolicy = this._getDiscountPolicy(this._generateItemId(orderProduct, item), sellerProductDiscount);
+				aSellerProductDiscounts.push(basePolicy);
+			}
+			
+			// 관리자 즉시할인
+			var managerImmediateDiscount = this._getDiscountByType(discounts, "MANAGER_IMMEDIATE_DISCOUNT");
+			if (this._isDicountAvailable(managerImmediateDiscount)) {
+				var basePolicy = this._getDiscountPolicy(this._generateItemId(orderProduct, item), managerImmediateDiscount, applyCountUsable);
+				if (applyCountUsable && item.current.nmpImmediateDiscount && item.current.nmpImmediateDiscount.applyCount) {
+					basePolicy.applyCount = item.current.nmpImmediateDiscount.applyCount;
+				}
+				aManagerImmediateDiscounts.push(basePolicy);
+			}
+			
+			// 관리자 상품할인
+			var managerProductDiscount = this._getDiscountByType(discounts, "MANAGER_PRODUCT_DISCOUNT");
+			if (this._isDicountAvailable(managerProductDiscount)) {
+				var basePolicy = this._getDiscountPolicy(this._generateItemId(orderProduct, item), managerProductDiscount);
+				aManagerProductDiscounts.push(basePolicy);
+			}
+			
+			// 단골할인
+			var subscribeDiscount = this._getDiscountByType(discounts, "SUBSCRIBER_DISCOUNT");
+			if (this._isDicountAvailable(subscribeDiscount)) {
+				var basePolicy = this._getDiscountPolicy(this._generateItemId(orderProduct, item), subscribeDiscount);
+				aSubscribeDiscounts.push(basePolicy);
+			}
+			
+			// 중복할인
+			var duplicateProductDiscount = this._getDiscountByType(discounts, "DUPLICATE_PRODUCT_DISCOUNT");
+			if (this._isDicountAvailable(duplicateProductDiscount)) {
+				var basePolicy = this._getDiscountPolicy(this._generateItemId(orderProduct, item), duplicateProductDiscount);
+				aDuplicateProductDiscounts.push(basePolicy);
+			}
+			
+			// 복수구매할인
+			var multiPurchaseDiscount = this._getDiscountByType(discounts, "MULTI_PURCHASE_DISCOUNT");
+			if (this._isDicountAvailable(multiPurchaseDiscount)) {
+				var basePolicy = this._getDiscountPolicy(this._generateItemId(orderProduct, item), multiPurchaseDiscount);
+				aMultiPurchaseDiscounts.push(basePolicy);
+			}
+		}, this).bind());
+		
+		this._calculator.addSellerImmediateDiscounts(aSellerImmediateDiscounts);
+		this._calculator.addSellerProductDiscounts(aSellerProductDiscounts);
+		this._calculator.addNmpImmediateDiscounts(aManagerImmediateDiscounts);
+		this._calculator.addNmpProductDiscounts(aManagerProductDiscounts);
+		this._calculator.addSubscribeDiscounts(aSubscribeDiscounts);
+		this._calculator.addDuplicateProductDiscounts(aDuplicateProductDiscounts);
+		this._calculator.addMultiPurchaseDiscounts(aMultiPurchaseDiscounts);
+	},
+	_incrementAndSet : function(htObject, field, value) {
+		htObject[field] = (htObject[field] || 0) + (value || 0);
+	},
+	_getDiscountByType : function(discounts, type) {
+		var foundDiscount = null;
+		$A(discounts).forEach(function(discount) {
+			if (discount.discountPolicy.discountType == type) {
+				foundDiscount = discount;
+				$A.Break();
+			}
+		});
+		return foundDiscount;
+	},
+	calculate : function() {
+		var result = this._calculator.calculate();
+
+		var orderProductDiscounts = {};
+		$A(result.items).forEach(function(item) {
+			if (item.discountResult != null) {
+				orderProductDiscounts[item.orderProductId] = orderProductDiscounts[item.orderProductId] || {};
+				$A(this._calculator.getDiscountPolicyNames()).forEach(function(discountPolicyName) {
+					this._incrementAndSet(orderProductDiscounts[item.orderProductId], discountPolicyName, item.discountResult[discountPolicyName] || 0);
+				}, this);
+				
+				orderProductDiscounts[item.orderProductId].bRemainMinus = orderProductDiscounts[item.orderProductId].bRemainMinus || item.discountResult.bRemainMinus;
+				orderProductDiscounts[item.orderProductId].bRemainUnitMinus = orderProductDiscounts[item.orderProductId].bRemainUnitMinus || item.discountResult.bRemainUnitMinus;
+			}
+		}, this);
+		
+		this._clear();
+		return {
+			"orderProductDiscounts" : orderProductDiscounts,
+			"orderItems" : result.items,
+			"deliveryDiscounts" : result.deliveries,
+			"orderDiscount" : result.orders,
+            "storeDiscount" : result.stores,
+			"summary" : result.summary
+		};
+	},
+	/**
+	 * 주문시 전송할 데이타 생성
+	 * 
+	 * @param orderProducts
+	 * @returns {Array}
+	 */
+	createOrder : function(orderProducts, htCalculateResult) {
+		var resultObjects = [];
+		$A(orderProducts).forEach(function(orderProduct) {
+			var newOrderProduct = {};
+			resultObjects.push(newOrderProduct);
+
+			// 기본정보
+			newOrderProduct.id = orderProduct.id;
+			newOrderProduct.salePrice = orderProduct.salePrice;
+
+			// 배송비
+			newOrderProduct.deliveryFee = {};
+			if ( orderProduct.deliveryFee.deliveryFeePayIngredient == "PRE_OR_AFTER_PAY" && orderProduct.deliveryGroup.deliveryFeePayType != "FREE") {
+				newOrderProduct.deliveryFee.deliveryFeePay = orderProduct.deliveryGroup.deliveryFeePayType;
+			}
+
+			// 아이템 정보
+			newOrderProduct.items = [];
+
+			$A(orderProduct.items).forEach(function(item) {
+				if (item.purchasable) {
+					var newItem = {};
+					newItem.id = item.id;
+					newItem.price = item.price;
+					newItem.quantity = item.quantity;
+					newOrderProduct.items.push(newItem);
+				}
+			});
+
+			// 할인 정보
+			var htDiscountResult = htCalculateResult.orderProductDiscounts[orderProduct.id];
+			if (htDiscountResult != null) {
+				newOrderProduct.benefits = {};
+				newOrderProduct.benefits.current = {};
+				var discounts = [];
+				
+				if ( htDiscountResult.nmpImmediateDiscount && htDiscountResult.nmpImmediateDiscount > 0 ) {
+					discounts.push({
+						"discountAmount" : htDiscountResult.nmpImmediateDiscount,
+						"discountPolicy" : orderProduct.benefits.benefitPolicies.nmpImmediateDiscount
+					});
+				}
+				
+				if ( htDiscountResult.sellerImmediateDiscount && htDiscountResult.sellerImmediateDiscount > 0 ) {
+					discounts.push({
+						"discountAmount" : htDiscountResult.sellerImmediateDiscount,
+						"discountPolicy" : orderProduct.benefits.benefitPolicies.sellerImmediateDiscount
+					});
+				}
+				
+				if ( htDiscountResult.multiPurchaseDiscount && htDiscountResult.multiPurchaseDiscount > 0 ) {
+					discounts.push({
+						"discountAmount" : htDiscountResult.multiPurchaseDiscount,
+						"discountPolicy" : orderProduct.benefits.benefitPolicies.multiPurchaseDiscount
+					});
+				}
+				
+				newOrderProduct.benefits.current.discounts = discounts;
+
+				$A.Continue();
+			}
+		});
+
+		return resultObjects;
+	}
+}).extend(jindo.Component);

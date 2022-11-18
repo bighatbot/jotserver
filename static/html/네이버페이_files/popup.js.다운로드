@@ -1,0 +1,454 @@
+nmp.createModule("nmp.front.order.popup", {
+    _htInstance : {
+    },
+    _htElementSelector : {
+        "root" : "body"
+    },
+    initialize : function(options){
+        nmp.front.order.ui.initializeEventDeligator(this._getElement("root", true), this);
+
+        nmp.message.initialize();
+        nmp.message.listener($Fn(this.executeCallback, this).bind(), true);
+
+        this.addAddressCallback({
+            "sCallBackKey" : "default",
+            "sPath" : " ", // space 필요
+            "welRoot" : this._getElement("root")
+        });
+
+        if ( this._getOption("autoResize")) {
+            if(this._getOption("nMaxHeight")) {
+                nmp.window.resizeWindow({
+                    "nMaxHeight" : this._getOption("nMaxHeight")
+                });
+            } else {
+                nmp.window.resizeWindow();
+            }
+        }
+    },
+    _getPopupUrl : function(propertyName) {
+        var htUrls = this._getOption("urls");
+        var sUrl = htUrls[propertyName];
+        if ( sUrl == null ) {
+            var oException = {
+                code : "OPTION_NOT_FOUND",
+                message : propertyName+"옵션 속성을 찾을 수 없습니다. 모듈 초기화 설정을 확인해 주세요."
+            };
+
+            alert(oException.message);
+            throw oException;
+        }
+        return sUrl;
+    },
+    openPayNextPopup : function(we, sOrderId) {
+        nmp.openPopup("/o/payNext/" + sOrderId + "?_callback=nmp.front.order.popup.callbackPayNext&_entryPoint=orderDetail", ["width=500", "height=800", "scrollbars=yes"],"payNext");
+    },
+    callbackPayNext : function() {
+        location.reload();
+    },
+    openRefundFailPopup : function(we, sProductOrderId) {
+        nmp.openPopup("/claim/detail/"+sProductOrderId+"/refundFail", ["width=520", "height=580"], "refundFail");
+    },
+    openShoppingInquiryPopup : function(we, sOrderId, sMerchantNo) {
+        var popupUrl = jindo.$Template(this._getPopupUrl("benefit.front.popup.shoppingInquiry")).process({ "orderId" : sOrderId, "merchantNo" : sMerchantNo});
+        nmp.openPopup(popupUrl, ["width=520", "height=550", "scrollbars=yes"], "shoppingInquiry");
+    },
+    openMerchantInfoPopup : function(we, sMerchantId, sServiceType) {
+        nmp.openPopup("/merchant/" + sMerchantId + "/popup" + (sServiceType != undefined ? ("?serviceType=" + sServiceType) : ""), ["width=520", "height=580"], "merchantInfo");
+    },
+    openShopSubscribePopup : function (we, sMerchantNo, sNaverId) {
+        var popupUrl = jindo.$Template(this._getPopupUrl("shop.front.popup.subscribe")).process({ "merchantNumber" : sMerchantNo, "naverId" : sNaverId});
+        nmp.openPopup(popupUrl, ["width=380", "height=300"], "subscribeSellerShop", {});
+    },
+    openAddressBookMapPopup : function(we, sMerchantNo, sAddressId) {
+        var popupUrl = jindo.$Template(this._getPopupUrl("shop.addressBookMapPopup")).process({"merchantNo":sMerchantNo, "addressId" : sAddressId});
+        nmp.openPopup(popupUrl, ["width=510", "height=600"], "addressBookMap");
+    },
+    openMemberAddressBookForOrder : function(we, memberNo, callbackFunctionName) {
+        var popupUrl, popupName;
+        var sOrigin = window.location.protocol + "//" + window.location.hostname;
+        if (this._getOption("isDeliveryAddressAgreed") != undefined && this._getOption("isDeliveryAddressAgreed")) {
+            popupUrl = this._getPopupUrl("front.order.popup.addressBook.new");
+            popupUrl = $S(popupUrl).trim().toString();
+            popupUrl = popupUrl + "?callbackFunction=" + callbackFunctionName + "&origin=" + sOrigin;
+        } else if (this._getOption("isDeliveryAddressAgreed") != undefined && !this._getOption("isDeliveryAddressAgreed")) {
+            popupUrl = this._getPopupUrl("front.order.popup.addressBook");
+            popupUrl = $S(popupUrl).trim().toString();
+            popupUrl = popupUrl + "?viewOption&callbackFunctionName="+callbackFunctionName;
+        } else {
+            alert("배송지 목록 조회가 불가합니다.\n신규 배송지를 입력해주세요.");
+            return;
+        }
+        popupName = "deliveryPlaceList";
+        console.log("popupUrl=", popupUrl);
+        nmp.openPopup(popupUrl, ["width=640", "height=450", "scrollbars=yes"], popupName, null);
+    },
+    executeCallback : function(event) {
+        if (event && event.data && event.data.content && event.data.type) {
+            var callbackFunction = eval(event.data.type);
+            callbackFunction(event.data.content);
+        }
+    },
+    openAddressPopup : function(we, sCallBackKey, memberNo, checkExtraFee, sJibunOnly, isDeliveryAddressAgreed) {
+        var isMember = (memberNo == undefined || memberNo.length == 0 )?false:true;
+        var bJibunOnly = (sJibunOnly === "true" || sJibunOnly === true) ? true : false;
+        // sCallBackKey가 비었으면 default를 호출
+        sCallBackKey = nmp.utility.isNotEmpty(sCallBackKey)?sCallBackKey:"default";
+        var currentOrigin = window.location.protocol + "//" + window.location.hostname;
+        var encodedOrigin = encodeURIComponent(currentOrigin);
+
+        if (!this._addressCallbacks[sCallBackKey]) {
+            // sCallBackKey가 비어있지는 않지만 미리정의되지 않았다면 새로정의함
+            this.addAddressCallback({
+                "sCallBackKey" : sCallBackKey,
+                "welRoot" : this._getElement("root"),
+                "bFullInfo" : isMember,
+                "checkExtraFee" : checkExtraFee,
+                "bJibunOnly" : bJibunOnly
+            });
+        }
+        var sCallBackFunction = this.name + "._addressCallbacks." + sCallBackKey;
+        if (isMember){
+            this._setOption("isDeliveryAddressAgreed", isDeliveryAddressAgreed);
+            this.openMemberAddressBookForOrder(we, memberNo, sCallBackFunction, isDeliveryAddressAgreed);
+        } else {
+            nmp.openPopup("/zipcodeV2?onlyJibun=" + (bJibunOnly?"true":"false") + "&callbackFunctionName="+sCallBackFunction + "&origin=" + encodedOrigin + "&parentCallback=ncp.order.pc.customer-zipcode-search", ["width=430", "height=500", "resizable=yes", "scrollbars=yes"], "zipcodeSearch");
+        }
+    },
+    _addressCallbacks : {
+        "default" : function(oAddressInfo) {
+            this._setAddressInfo(null, this._getElement("root"), oAddressInfo, false);
+        }
+    },
+    addAddressCallback : function(htOptions) {
+        // sCallBackKey :(필수) 콜백이름, openAddressPopup를 호출할 때 쓰임(이름안에 '.'을 넣으면 안됨)
+        // sPath 		:(옵션) 주소관련 input태그들의 name에서 .zipCode_1, .baseAddress등을 제외한 앞쪽 prefix path, 없으면 sCallBackKey을 sPath로 사용한다.
+        // welRoot		:(필수) 주소관련 input태그들을 찾기위한 root 엘리먼트
+        // bFullInfo	:(옵션) 우편번호와 baseAddress만 채워줄지 name, telNo, detailAddress등의 다른 정보도 채워줄지 여부
+        if (htOptions && htOptions["sCallBackKey"] && htOptions["welRoot"]){
+            var sCallBackKey = htOptions["sCallBackKey"];
+            if (sCallBackKey.indexOf(".") > 0) {
+                alert("sCallBackKey에는 '.'이 포함될 수 없습니다.");
+                return;
+            }
+            var sPath = htOptions["sPath"] || sCallBackKey;
+            var welRoot = htOptions["welRoot"];
+            var bFullInfo = htOptions["bFullInfo"]? true : false;
+            var bJibunOnly = htOptions["bJibunOnly"]? true : false;
+            this._addressCallbacks[sCallBackKey] = $Fn(function(oResult, oResult2, oResult3){
+                var oAddressInfo = oResult;
+                if ( oResult.sAddressBookJson) {
+                    oAddressInfo = jindo.$Json(oResult.sAddressBookJson).toObject();
+                } else {
+                    oAddressInfo = oResult;
+                }
+                this._setAddressInfo(sPath, welRoot, oAddressInfo, bFullInfo, bJibunOnly);
+                var checkExtraFee = htOptions["checkExtraFee"];
+                if(checkExtraFee == "true"){
+                    nmp.front.order.order_sheet.findBaseAddress();
+                }
+            }, this).bind();
+
+
+        }
+    },
+    _setAddressInfo : function(sPath, welRoot, oAddressInfo, bFullAddressInfo, bJibunOnly){
+        var sPrefix = nmp.utility.isNotEmpty(sPath) ? sPath + "." : "";
+        oAddressInfo = this._changeAddressInfo(oAddressInfo, bFullAddressInfo);
+        if (bJibunOnly && oAddressInfo.roadNameAddressYn) {
+            alert("해당판매자는 도로명주소가 지원되지 않아 입력이 불가합니다. 지번으로 입력해주세요.");
+            return;
+        }
+
+        var zipCodeWithoutHyphen = oAddressInfo.zipcode.replace(/-/g,"");
+        this._setAddressValue(welRoot, sPrefix+"zipCode", zipCodeWithoutHyphen);
+        this._setAddressValue(welRoot, sPrefix+"baseAddress", oAddressInfo.baseAddress);
+        this._setAddressValue(welRoot, sPrefix+"detailAddress", oAddressInfo.detailAddress);
+        if(bFullAddressInfo){
+            this._setAddressValue(welRoot, sPrefix+"name", oAddressInfo.name);
+            this._setAddressValue(welRoot, sPrefix+"receiverName", oAddressInfo.name);
+            this._setAddressValue(welRoot, sPrefix+"telNo1", oAddressInfo.telNo1);
+            this._setAddressValue(welRoot, sPrefix+"telNo1_1", oAddressInfo.telNo1_1);
+            this._setSelectAddressValue(welRoot, sPrefix+"telNo1_1", oAddressInfo.telNo1_1);
+            this._setAddressValue(welRoot, sPrefix+"telNo1_2", oAddressInfo.telNo1_2);
+            this._setAddressValue(welRoot, sPrefix+"telNo1_3", oAddressInfo.telNo1_3);
+            this._setAddressValue(welRoot, sPrefix+"telNo2", oAddressInfo.telNo2);
+            this._setAddressValue(welRoot, sPrefix+"telNo2_1", oAddressInfo.telNo2_1);
+            this._setSelectAddressValue(welRoot, sPrefix+"telNo2_1", oAddressInfo.telNo2_1);
+            this._setAddressValue(welRoot, sPrefix+"telNo2_2", oAddressInfo.telNo2_2);
+            this._setAddressValue(welRoot, sPrefix+"telNo2_3", oAddressInfo.telNo2_3);
+
+            this._setAddressValue(welRoot, sPrefix+"roadNameAddress", oAddressInfo.roadNameAddress);
+            this._setAddressValue(welRoot, sPrefix+"lotNumberAddress", oAddressInfo.lotNumberAddress);
+            this._setAddressValue(welRoot, sPrefix+"roadNameAddressYn", oAddressInfo.roadNameAddressYn);
+        }else{
+            this._setAddressValue(welRoot, sPrefix+"roadNameAddress", oAddressInfo.roadNameAddress);
+            this._setAddressValue(welRoot, sPrefix+"lotNumberAddress", oAddressInfo.lotNumberAddress);
+            this._setAddressValue(welRoot, sPrefix+"roadNameAddressYn", oAddressInfo.roadNameAddressYn);
+
+            // 우편번호 검색 이후 상세 주소로 포커싱이 되도록 한다.
+            var el = welRoot.query("input[name='"+sPrefix+"detailAddress']");
+            if(el && el["value"] != null && el["value"] != undefined) {
+                el.focus();
+            }
+        }
+
+        if(oAddressInfo.roadNameAddressYn && oAddressInfo.lotNumberAddress != null){
+            if(welRoot.query("p.lotNumberAddress")){
+                $Element(welRoot.query("p.lotNumberAddress")).html("지번 : " + oAddressInfo.lotNumberAddress);
+            }
+        }else{
+            if(welRoot.query("p.lotNumberAddress")){
+                $Element(welRoot.query("p.lotNumberAddress")).html("");
+            }
+        }
+        //신규 주소지 입력 내용 저장
+        if (nmp.front.order.order_sheet != undefined && nmp.front.order.order_sheet.storage != undefined) {
+            nmp.front.order.order_sheet.storage.saveOrderInfo();
+        }
+
+    },
+    _changeAddressInfo : function(oAddressInfo, bFullAddressInfo) {
+        var oResult = {};
+        if (!bFullAddressInfo) {
+            // 내부우편번호팝업
+            oResult["zipcode"] = oAddressInfo.zipcode;
+            oResult["baseAddress"] = oAddressInfo.baseAddress;
+            oResult["detailAddress"] = oAddressInfo.detailAddress;
+            oResult["roadNameAddress"] = oAddressInfo.roadNameAddress;
+            oResult["lotNumberAddress"] = oAddressInfo.numberOfLotAddress;
+            oResult["roadNameAddressYn"] = oAddressInfo.isRoadNameAddress;
+        } else {
+            // 주소정보를 모두 넣는 것은 기본 우편번호 팝업이 아니고 주소록 팝업들이기 때문에 주소록팝업들에서 제공하는 데이터이름에 따라 변환필요
+            if (oAddressInfo.sellerShopName != undefined) {
+                // 판매자 주소록 팝업
+                oResult["zipCode"] = oAddressInfo.postalCode || ( oAddressInfo.postalCodeHead + oAddressInfo.postalCodeTail );
+                oResult["baseAddress"] = oAddressInfo.baseAddress;
+                oResult["name"] = oAddressInfo.sellerShopName;
+                oResult["telNo1"] = oAddressInfo.phoneNumber1;
+                oResult["telNo2"] = oAddressInfo.phoneNumber2;
+                oResult["detailAddress"] = oAddressInfo.detailAddress;
+            } else if (oAddressInfo.dlvpName != undefined) {
+                // 구매자 주소록 팝업
+                var zipCodeWithoutHyphen = oAddressInfo.zipcode.replace(/-/g,"");
+                oResult["zipcode"] = zipCodeWithoutHyphen;
+                oResult["baseAddress"] = oAddressInfo.baseAddr;
+                oResult["name"] = oAddressInfo.name;
+                oResult["telNo1"] = oAddressInfo.tel1;
+                oResult["telNo2"] = oAddressInfo.tel2;
+                oResult["detailAddress"] = oAddressInfo.detailAddr;
+                oResult["roadNameAddress"] = oAddressInfo.roadNameAddress;
+                oResult["lotNumberAddress"] = oAddressInfo.lotNumberAddress;
+                if (oAddressInfo.roadNameAddressYn === true || oAddressInfo.roadNameAddressYn === "true") {
+                    oResult["roadNameAddressYn"] = true;
+                } else {
+                    oResult["roadNameAddressYn"] = false;
+                }
+            }
+        }
+        if (bFullAddressInfo) {
+            // split telNo1
+            var aTelNo1 = nmp.front.order.formatter.phoneNumber.splitToArray(oResult["telNo1"]);
+            oResult["telNo1_1"] = aTelNo1[0];
+            oResult["telNo1_2"] = aTelNo1[1];
+            oResult["telNo1_3"] = aTelNo1[2];
+            // split telNo1
+            var aTelNo2 = nmp.front.order.formatter.phoneNumber.splitToArray(oResult["telNo2"]);
+            oResult["telNo2_1"] = aTelNo2[0];
+            oResult["telNo2_2"] = aTelNo2[1];
+            oResult["telNo2_3"] = aTelNo2[2];
+        }
+        return oResult;
+    },
+    _setAddressValue : function (welRoot, sInputFieldName, value) {
+        var el = welRoot.query("input[name='"+sInputFieldName+"']");
+        if(el && el["value"] != null && el["value"] != undefined) {
+            el.value = value||"";
+        }
+    },
+    _setSelectAddressValue : function (welRoot, sSelectFieldName, value) {
+        var el = welRoot.query("select[name='"+sSelectFieldName+"']");
+        if(el && el["value"] != null && el["value"] != undefined) {
+            el.value = value||"";
+        }
+    },
+
+    /** 내계좌목록 팝업 띄우기 */
+    openRefundmentAccountBook : function(weClick, callbackFunctionName) {
+        var popupUrl = this._getPopupUrl("benefit.front.popup.refundmentAccountBook");
+        var popupName = "refundmentAccountBook";
+
+        popupUrl = $S(popupUrl).trim().toString();
+
+        if ( document.location.protocol == "https:") {
+            popupUrl = popupUrl.replace("http://","https://");
+        }
+
+        popupUrl = popupUrl + "?viewOption&callbackFunctionName="+callbackFunctionName;
+        nmp.openPopup(popupUrl, ["width=520", "height=450", "resizable=yes"], popupName, null);
+    },
+    /** 내계좌목록 팝업 띄우기 */
+    openRefundmentAccountBookForOrder : function(weClick, callbackFunctionName) {
+        weClick.element.blur();
+
+        var popupUrl = this._getPopupUrl("benefit.front.order.popup.refundmentAccountBook");
+        var popupName = "refundmentAccountBook";
+        var sOrigin = window.location.protocol + "//" + window.location.hostname;
+
+        popupUrl = $S(popupUrl).trim().toString();
+        popupUrl = popupUrl + "?viewOption&callbackFunctionName=" + callbackFunctionName + "&origin=" + sOrigin;
+        nmp.openPopup(popupUrl, ["width=520", "height=450", "resizable=yes"], popupName, null);
+    },
+
+    /** 환불상품 차감내역 */
+    openRefundDeductionDetail: function(weClick, orderId) {
+        var payMethodType = 'INCLUDED_ON_RETURN';
+        var popupUrl = "/refund/balance/" + orderId + "/refunded/"+ payMethodType;
+        nmp.openPopup(popupUrl, [ "width=790", "height=550" ], "refundBalance");
+    },
+
+    /** 프리미엄 구매평 쓰기 팝업 */
+    openPremiumPurchaseReviewWritePopup : function(weClick, orderNo, prodOrderNo, bClose) {
+        var absoluteUrl = (this._getOption("urls") != undefined) ? this._getOption("urls")["order.purchaseReview.write"] : "";
+        var popupName = "premiumPurchaseReviewWrite";
+
+        if (absoluteUrl != undefined && absoluteUrl != "") {
+            popupUrl = absoluteUrl + "/" + orderNo + "/" + prodOrderNo + "/premiumReview";
+        } else {
+            popupUrl = "/purchaseReview/" + orderNo + "/" + prodOrderNo + "/premiumReview";
+        }
+        nmp.openPopup(popupUrl, ["width=650", "height=750", "resizable=yes, scrollbars=yes"], popupName, null);
+
+        if (null != bClose && bClose) {
+            this.closePopupAndOpenerRefresh(weClick);
+        }
+    },
+
+    /** 일반 구매평 쓰기 팝업 */
+    openGeneralPurchaseReviewWritePopup : function(weClick, orderNo, prodOrderNo, bClose) {
+        var absoluteUrl = this._htInstance["absoluteUrl"]== undefined?"":this._htInstance["absoluteUrl"];
+        var popupName = "generalPurchaseReview";
+
+        popupUrl = absoluteUrl + "/purchaseReview/" + orderNo + "/" + prodOrderNo + "/generalReview";
+        nmp.openPopup(popupUrl, ["width=520", "height=450", "resizable=yes"], popupName, null);
+
+        if (null != bClose && bClose) {
+            this.closePopupAndOpenerRefresh(weClick);
+        }
+    },
+
+    /** 프리미엄 구매평 쓰기 팝업 (리다이렉트) */
+    redirectToPremiumPurchaseReviewWritePopup : function(weClick, orderNo, prodOrderNo) {
+        var absoluteUrl = this._htInstance["absoluteUrl"]== undefined?"":this._htInstance["absoluteUrl"];
+
+        popupUrl = absoluteUrl + "/purchaseReview/" + orderNo + "/" + prodOrderNo + "/premiumReview";
+        window.location.href = popupUrl;
+    },
+
+    /** 일반 구매평 쓰기 팝업 (리다이렉트) */
+    redirectToGeneralPurchaseReviewWritePopup : function(weClick, orderNo, prodOrderNo) {
+        var absoluteUrl = this._htInstance["absoluteUrl"]== undefined?"":this._htInstance["absoluteUrl"];
+
+        popupUrl = absoluteUrl + "/purchaseReview/" + orderNo + "/" + prodOrderNo + "/generalReview";
+        window.location.href = popupUrl;
+    },
+
+    /** 프리미엄 구매평 조회 팝업 */
+    openPremiumPurchaseReviewViewPopup : function(weClick, prrewId) {
+        var absoluteUrl = (this._getOption("urls") != undefined) ? this._getOption("urls")["order.purchaseReview.write"] : "";
+        var popupName = "premiumPurchaseReview";
+
+        if (absoluteUrl != undefined && absoluteUrl != "") {
+            popupUrl = absoluteUrl + "/" + prrewId + "/premiumReview/view";
+        } else {
+            popupUrl = "/purchaseReview/" + prrewId + "/premiumReview/view";
+        }
+
+        nmp.openPopup(popupUrl, ["width=650", "height=750", "resizable=yes, scrollbars=yes"], popupName, null);
+    },
+
+    /** 프리미엄 구매평 수정 팝업 */
+    openPremiumPurchaseReviewModifyPopup : function(weClick, orderNo, prodOrderNo, shopN) {
+        var absoluteUrl = (this._getOption("urls") != undefined) ? this._getOption("urls")["order.purchaseReview.write"] : "";
+        var popupName = "premiumPurchaseReview";
+
+        if (absoluteUrl != undefined && absoluteUrl != "") {
+            popupUrl = absoluteUrl + "/" + orderNo + "/" + prodOrderNo + "/premiumReview" + ((undefined != shopN && "true" == shopN) ? "/shopn" : "");
+        } else {
+            popupUrl = "/purchaseReview/" + orderNo + "/" + prodOrderNo + "/premiumReview" + ((undefined != shopN && "true" == shopN) ? "/shopn" : "");
+        }
+
+        nmp.openPopup(popupUrl, ["width=650", "height=750", "resizable=yes, scrollbars=yes"], popupName, null);
+    },
+
+    /** 일반 구매평 수정 팝업 */
+    openGeneralPurchaseReviewModifyPopup : function(weClick, orderNo, prodOrderNo) {
+        var absoluteUrl = this._htInstance["absoluteUrl"]== undefined?"":this._htInstance["absoluteUrl"];
+        var popupName = "generalPurchaseReview";
+
+        popupUrl = absoluteUrl + "/purchaseReview/" + orderNo + "/" + prodOrderNo + "/generalReview";
+        nmp.openPopup(popupUrl, ["width=520", "height=450", "resizable=yes"], popupName, null);
+    },
+
+    /** 통합 장바구니 찜하기 팝업 */
+    openKeepProductsPopup : function(weClick, aProducts, aCartInflowPaths, callbackFuncName) {
+        var popupUrl = this._getPopupUrl("user.keep.product.url");
+        var popupName = "keepProduct";
+
+        var template = $Template("keepProductList[{=index}].serviceTypeCode={=serviceType}&keepProductList[{=index}].mallProductId={=productId}&keepProductList[{=index}].merchantNo={=merchantNo}&keepProductList[{=index}].tr={=tr}");
+
+        var parameterString = "";
+
+        $A(aProducts).forEach(function(value,index) {
+            parameterString = parameterString + template.process({
+                "index": index,
+                "serviceType" : value.serviceType == "CHECKOUT" ? "CHECKOUT" : "SHOPN",
+                "productId" : encodeURIComponent(value.productId),
+                "merchantNo" : value.merchantNo,
+                "tr" : aCartInflowPaths[value.id]
+            }) + "&";
+        });
+
+        popupUrl = $S(popupUrl).trim().toString() + ( popupUrl.indexOf("?") > 0 ? "&" : "?" ) + parameterString;
+
+
+        if ( callbackFuncName ) {
+            popupUrl = popupUrl + "keepCallback=" + callbackFuncName;
+        }
+
+        nmp.openPopup(popupUrl, ["width=520", "height=235", "resizable=yes"], popupName, null);
+    },
+    openKeepProductPopup : function(weClick, nvMid) {
+        var popupUrl = this._getPopupUrl("user.keep.product.url");
+        var popupName = "keepProduct";
+
+        popupUrl = $S(popupUrl).trim().toString();
+        popupUrl = popupUrl + "?serviceTypeCode=SHOPPING&mallProductIds[0]="+nvMid;
+        nmp.openPopup(popupUrl, ["width=520", "height=235", "resizable=yes"], popupName, null);
+    },
+
+    closePopup : function(we) {
+        nmp.utility.closeWindow();
+    },
+
+    closePopupAndOpenerRefresh : function(we) {
+        try {
+            window.opener.location.reload();
+        } catch (e) {
+            window.close();
+        }
+        nmp.closeWindow();
+    },
+
+    /** 배송조회 팝업 */
+    openDeliveryTrackingPopup : function(htEvent, sProductOrderId, sDeliveryId) {
+        var popupUrl = "/o/orderStatus/deliveryTracking/" + sProductOrderId +"/" + sDeliveryId;
+        nmp.openPopup(popupUrl, ["width=530", "height=458", "resizable=yes, scrollbars=yes"], "deliveryTrackingPopup", null);
+    },
+    /** 마이페이지 > 충전금 관리 페이지 이동 */
+    openChargeManage : function() {
+        var url = this._getPopupUrl("charge.checkout.url");
+        window.open(url);
+    },
+    "":""
+});

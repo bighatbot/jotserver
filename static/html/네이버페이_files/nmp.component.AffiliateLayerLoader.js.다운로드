@@ -1,0 +1,210 @@
+/**
+ * 픽N톡 레이어 로더 컴포넌트
+ * 
+ * @class
+ * @name nmp.component.AffiliateLayerLoader
+ * @author EC전시서비스개발팀 윤흥기
+ */
+nmp.component.AffiliateLayerLoader = $Class({
+	$static : {
+		/**
+		 * 픽N톡 레이어의 마크업 경로
+		 * @type {String}
+		 */
+		_sRequestAPI : "http://pickntalk.shop.naver.com/layer/",
+		
+		/**
+		 * 로딩된 레이어 저장 객체
+		 * @type {HashTable}
+		 */
+		_htLoadedLayer : [],
+		
+		/**
+		 * 이벤트 데이터 저장 객체
+		 * @type {HashTable}
+		 */
+		_htEventData : {},
+		
+		/**
+		 * 픽N톡 레이어를 불러올 환경 정보를 설정한다. 
+		 * 
+		 * @param {String} sEnv 서비스 환경 정보 (real, alpha, beta, local 사용 가능)
+		 */
+		setEnvironment : function(sEnv){
+            this._sEnv = (nmp.getVariable("sDeployEnvironment") || sEnv);
+			switch(sEnv){
+			case "real":
+				this._sRequestAPI = "http://pickntalk.shop.naver.com/layer/";
+				break;
+			case "alpha":
+				this._sRequestAPI = "http://alpha.pickntalk.shop.naver.com:10080/layer/";
+				break;
+			case "beta":
+				this._sRequestAPI = "http://beta.pickntalk.shop.naver.com/layer/";
+				break;
+			case "dev":
+				this._sRequestAPI = "http://dev.pickntalk.shop.naver.com:10080/layer/";
+				break;
+			case "local":
+				this._sRequestAPI = "http://local.pickntalk.shop.naver.com:10080/layer/";
+				break;
+			case "test":
+				this._sRequestAPI = "affiliate_layer.html";
+				break;
+			}
+		},
+		
+		/**
+		 * 버튼 클릭과 같은 동작 시에, 픽N톡 레이어를 불러와서 보여준다.
+		 * - 클릭 이벤트 객체를 넘긴 경우, 클릭 이벤트가 발생한 엘리먼트를 기준으로 레이어를 보여준다.
+		 * - 이미 로딩을 한 레이어는 다시 불러오지 않고, 이미 불러온 레이어를 보여준다.
+		 * 
+		 * @param {$Event} weClick 클릭 이벤트 객체
+		 * @param {String} sType 픽N톡할 대상의 종류
+		 * @param {String} sCode 소문내가할 대상의 키값
+		 * @param {String} sCheckoutShopNo 소문내가할 대상 체크아웃 샵 ID
+		 * @param {String} sCategoryId 소문내가할 대상 카테고리 ID
+		 * @param {Boolean} bAutoPositioning 소문내기 레이어의 위치를 상황에 따라 자동으로 설정할 지 여부 (기본값 false)
+		 * @example
+		 * nmp.component.AffiliateLayerLoader.show(weClick, "product", "12923993", "123", "", "ABC");
+		 */
+		show : function(weClick, sType, sCode, sCheckoutShopNo, sCategoryId, bAutoPositioning, fHideCallback){
+			if(weClick && sType && sCode ){
+				var elTarget = this._htLoadedLayer[sType+"_"+sCode+"_"+sCheckoutShopNo+"_"+sCategoryId];
+				var welBaseElement = $Element(weClick.element);
+				var elBaseElement = (welBaseElement.tag == "a" ? welBaseElement : welBaseElement.parent(function(welParent){
+					if(welParent.tag == "a"){
+						return welParent;
+					}
+				}, 5)[0]).$value();
+				
+				if(elTarget){
+					if($Element(elTarget).visible()){
+						this.hide();
+					}else if(!bAutoPositioning){
+						if(!this._htEventData["resize"]){
+							this._htEventData["resize"] = $Fn(this.hide, this).attach(window, "resize");
+						}
+						nmp.layer.show(elTarget, elBaseElement, {
+							"bAuto" : false,
+							"fHideCallback" : $Fn(this._onHide, this).bind(fHideCallback)
+						});
+					}else{
+						nmp.layer.show(elTarget, elBaseElement, {
+							"bAuto" : true,
+							"fHideCallback" : fHideCallback
+						});
+					}
+				}else{
+					this._loadHTML(sType, sCode, sCheckoutShopNo, sCategoryId, elBaseElement, false, bAutoPositioning, fHideCallback);
+				}
+			}
+		},
+		
+		/**
+		 * 픽N톡 레이어를 불러와서 elContainer의 자식으로 추가한다. 
+		 * 
+		 * @param {HTMLElement} elContainer 엘리먼트를 보여주거나 삽입할 기준 엘리먼트
+		 * @param {String} sType 픽N톡할 대상의 종류
+		 * @param {String} sCode 픽N톡할 대상의 키값
+		 * @param {String} sCheckoutShopNo 소문내가할 대상 체크아웃 샵 ID
+		 * @param {String} sCategoryId 소문내가할 대상 카테고리 ID
+		 */
+		insert : function(elContainer, sType, sCode, sCheckoutShopNo, sCategoryId){
+            if(null == this._sEnv || this._sEnv == "beta" || this._sEnv == "real") {
+            }
+
+			if(elContainer && sType && sCode){
+				var elTarget = this._htLoadedLayer[sType + "_" + sCode + "_" + sCheckoutShopNo + "_" + sCategoryId];
+
+				if(!elTarget){
+					this._loadHTML(sType, sCode, sCheckoutShopNo, sCategoryId, $Element(elContainer).$value(), true);
+				}
+			}
+		},
+		
+		/**
+		 * 픽N톡 레이어의 마크업을 Ajax로 불러온다.
+		 * - 크로스도메인 상황에서 Ajax 통신을 하기 위해 jsonp 방식을 사용한다.
+		 * - jsonp : http://jindo.nhncorp.com/docs/jindo/archive/Jindo2-latest/ko/symbols/%24Ajax.html
+		 * 
+		 * @param {String} sType 픽N톡할 대상의 종류
+		 * @param {String} sCode 픽N톡할 대상의 키값
+		 * @param {String} sCheckoutShopNo 소문내가할 대상 체크아웃 샵 ID
+		 * @param {String} sCategoryId 소문내가할 대상 카테고리 ID
+		 * @param {HTMLElement} elBaseElement 엘리먼트를 보여주거나 삽입할 기준 엘리먼트
+		 * @param bInsert 불러온 마크업의 삽입 여부
+		 */
+		_loadHTML : function(sType, sCode, sCheckoutShopNo, sCategoryId, elBaseElement, bInsert, bAutoPositioning, fHideCallback){
+			if(sType && sCode && elBaseElement){
+				nmp.requestAjax(this._sRequestAPI, {
+					"type" : sType,
+					"code" : sCode,
+					"checkoutShopNo" : sCheckoutShopNo,
+					"categoryId" : sCategoryId,
+					"inline" : bInsert
+				}, {
+					"type" : "jsonp",
+					"callbackid" : "12345", // 추후삭제
+					"onload" : $Fn(this._onLoadHTML, this).bind(sType, sCode, sCheckoutShopNo, sCategoryId, elBaseElement, bInsert, bAutoPositioning, fHideCallback)
+				});
+			}
+		},
+		
+		/**
+		 * Ajax로 픽N톡 레이어의 마크업을 불러왔을 때 수행되는 콜백함수
+		 * - bInsert 값에 따라 레이어를 띄우거나 특정 엘리먼트의 자식으로 추가한다.
+		 * 
+		 * @param {String} sType 픽N톡할 대상의 종류
+		 * @param {String} sCode 픽N톡할 대상의 키값
+		 * @param {HTMLElement} elBaseElement 엘리먼트를 보여주거나 삽입할 기준 엘리먼트
+		 * @param {Boolean} bInsert 불러온 마크업의 삽입 여부
+		 * @param {HashTable} htResult Ajax 응답의 결과 객체
+		 */
+		_onLoadHTML : function(sType, sCode, sCheckoutShopNo, sCategoryId, elBaseElement, bInsert, bAutoPositioning, fHideCallback, htResult){
+			if(htResult && htResult.bResult){
+				var elTarget = $(htResult.htReturnValue.html);
+				this._htLoadedLayer[sType + "_" + sCode + "_" + sCheckoutShopNo + "_" + sCategoryId] = elTarget;
+				$Element(elTarget).attr('key', sType + "_" + sCode + "_" + sCheckoutShopNo + "_" + sCategoryId);
+
+				if(bInsert){
+					$Element(elTarget).show().appendTo(elBaseElement);
+				}else if(!bAutoPositioning){
+					if(!this._htEventData["resize"]){
+						this._htEventData["resize"] = $Fn(this.hide, this).attach(window, "resize");
+					}
+					nmp.layer.show(elTarget, elBaseElement, {
+						"bAuto" : false,
+						"fHideCallback" : $Fn(this._onHide, this).bind(fHideCallback)
+					});
+				}else{
+					nmp.layer.show(elTarget, elBaseElement, {
+						"bAuto" : true,
+						"fHideCallback" : fHideCallback
+					});
+				}
+			}
+		},
+		
+		/**
+		 * 레이어가 닫힐 때 발생하는 hide 이벤트 핸들러
+		 */
+		_onHide : function(fCallback, weHide){
+			if(this._htEventData["resize"]){
+				this._htEventData["resize"].detach(window, "resize");
+				this._htEventData["resize"] = null;
+			}
+			
+			if(fCallback){
+				fCallback(weHide);
+			}
+		},
+		
+		/**
+		 * 열려 있는 픽N톡 레이어를 닫는다.
+		 */
+		hide : function(){
+			nmp.layer.hide();
+		}
+	}
+});

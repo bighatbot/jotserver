@@ -1,0 +1,1799 @@
+/**
+ * 셀블로그(C2) 주문서 관련 스크립트 정보
+ */
+nmp.createModule("nmp.front.order.order_sheet.integration_cart",{
+	_htInstance : {},
+	_htElementSelector : {
+		"root" : "#order",
+		"orderForm" : "#orderForm",
+		"orderCertForm" : "form._orderCertForm",
+		"payMeansClass" : "input._payMeansClass",
+		"zipCode" : "._zipcode",
+		"isPinPay" : "input[name=isPin]",
+        "bannerBox" : "._bannerBox",
+		"bcCardNotice" : "._bccard_notice",
+		"unionPayNotice" : "._unionpay_notice",
+		"easyPayCardFlickArea" : "._easyPayCardFlickArea",
+		"bcCardFreeInstallmentDisableTooltip" : "._bcCardFreeInstallmentDisableTooltip",
+		"" : ""
+	},
+	_oTplForm:jindo.$Template([
+		'<form method="{=sMethod}" action="{=sPageUrl}" target="{=sName}" style="display:none">',
+		'{for value in values}',
+		'{set sKeyEscapeHtml=jindo.$S(=value.sKey).escapeHTML().$value()}',
+		'{set sValueEscapeHtml=jindo.$S(=value.vValue).escapeHTML().$value()}',
+		'<input type="hidden" name="{=sKeyEscapeHtml}" value="{=sValueEscapeHtml}" />',
+		'{/for}',
+		'</form>'
+	].join('')),
+	_bInitialize : false,
+	initialize : function() {
+		this._initializeEventAttach();
+		this._initializeFormHelper();
+		this._setDefaultTextInTextBox();
+
+		$Fn($Fn(function(){
+			var payMeansInfos = this._getOption("payMeansInfos");
+			if($H(payMeansInfos).length() == 0){
+				return;
+			}
+			if(this._getOption("isWindow") == undefined || this._getOption("isWindow")){
+				try {
+					bill.init(payMeansInfos['OCREDIT_CARD']);
+					bill.init(payMeansInfos['OBANK']);
+				} catch (e) {}
+
+				if (nmp.front.order.order_sheet.getPayMethod() == "CREDIT_CARD") {
+					this.initializeGeneralCreditCard();
+				} else if (nmp.front.order.order_sheet.getPayMethod() == "BANK") {
+					this.initializeGeneralBank();
+				}
+			}
+
+			// 신용카드 혜택 이벤트 배너
+			oCircularRolling = null;
+			if (jindo.$$.getSingle("._card_banner_rolling_size") != undefined && jindo.$$.getSingle("._card_banner_rolling_size") != null && $Element(jindo.$$.getSingle("._card_banner_rolling_size")).text() > 1) {
+				oCircularRolling = new jindo.CircularRolling(jindo.$$.getSingle("._card_banner_rolling"));
+				oCircularRolling.attach({
+					afterMove : function(oCustomEvent) {
+						jindo.$Element(jindo.$$.getSingle("._card_banner_rolling_index")).text(oCustomEvent.nIndex+1);
+					}
+				});
+
+				setInterval(function() {
+					oCircularRolling.moveBy(1);
+				}, 5000);
+                this.resizeBannerWidth();
+			}
+			//////
+		}, this).bind()).attach(window, 'load');
+
+		var detailInfoDivisionElement = $Element($$.getSingle("div ._noInstallmentInfo"));
+		if(detailInfoDivisionElement){
+			var noInstallmentLayer = new jindo.LayerManager(detailInfoDivisionElement.$value()).link(detailInfoDivisionElement.$value());
+			$A($$("._installmentInfo")).forEach(function(v,i,a){
+				noInstallmentLayer.link(a[i]);
+			});
+		}
+		this._bInitialize = true;
+
+		if(nmp.front.order.order_sheet.getOption("easyCardCode").has(nmp.front.order.order_sheet.getPayMethod())){
+			this.changeCompanyTypeCode(undefined, nmp.front.order.order_sheet.getPayMethod());
+			// 주문서가 처음 뜰 때, 카드 간편결제가 기본인 경우 뱃지 노출
+			this.changeLongFreeInterestBadge();
+		} else if (nmp.front.order.order_sheet.getPayMethod() == "CREDIT_CARD" && nmp.front.order.order_sheet.getOption("purchaserPaymentInfo") != undefined && nmp.front.order.order_sheet.getOption("purchaserPaymentInfo")["generalCardCompanyTypeCode"] != undefined) {
+			var sCardCompanyTypeCode = nmp.front.order.order_sheet.getOption("purchaserPaymentInfo")["generalCardCompanyTypeCode"];
+			var elCardType = this._getElement("root").query("select[name=cardSettleInfo.cardCompanyTypeCode]");
+			if ($A(elCardType.options).filter(function (v, i, o) {
+					if (v.value == sCardCompanyTypeCode) {
+						return true;
+					}
+					return false;
+				}).length() == 1) {
+				this.changeCompanyTypeCode(undefined, sCardCompanyTypeCode);
+			}
+		}
+	},
+	isInitialized : function(){
+		return this._bInitialize;
+	},
+	_setDefaultTextInTextBox :function () {
+		var defaultTextArr = $A();
+		$A($$("._text_20")).forEach(function(el){
+			defaultTextArr.push({"sName" : el.name , "sDefaultValue" :"20자 내로 입력해주세요." });
+		}, this);
+		$A($$("._text_50")).forEach(function(el){
+			defaultTextArr.push({"sName" : el.name , "sDefaultValue" :"50자 내로 입력해주세요." });
+		}, this);
+
+		this._htInstance["form_helper"].setDefaultText(defaultTextArr.$value());
+	},
+	/**
+	 *
+	 */
+	_initializeEventAttach : function() {
+		var orderForm = this._getElement("orderForm");
+
+		nmp.event_delegator.attach(orderForm, "mouseover", this);
+		nmp.event_delegator.attach(orderForm, "mouseout", this);
+
+		nmp.front.order.ui.initializeEventDeligator(this._getElement("root", true), this);
+
+		var zipCode = this._getElementList("zipCode",true);
+
+		for(var i = 0 ; i < zipCode.length ; i++){
+			nmp.event_delegator.attach(zipCode[i], "change", this);
+		}
+	},
+	_initializeFormHelper : function() {
+		var sAction = "";
+		sAction = "/orderSheetCreate/" + this._getOption("orderSnapshotKey");
+		if(this._getOption("orderClass") == "INTEGRATION_CART"){
+			sAction += "/integrationCart";
+		}else{
+			sAction += "/checkout";
+		}
+		this._htInstance["form_helper"] = new nmp.component.FormHelper({
+			"elRoot" : this._getElement("orderForm", true),
+			"bAjaxRequest" : true,
+			"bValidationOnly" : false,
+			"sAction" : sAction
+		});
+
+		var particularRealLength = $$("em.particularDeliveryMemoRealLength");
+		var particularMaxLength = $$("em.particularDeliveryMemoMaxLength");
+		var particularMemo = $$(".particularDeliveryMemo");
+		var lengthIndicatorList = $A();
+		var numberCheckList = $A();
+
+		$A(particularMemo).forEach(function(v,i,a){
+			lengthIndicatorList.push({
+				"sName" : a[i].name,
+				"nMaxLength" : 500,
+				"sType" :"char",
+				"elRealLength": particularRealLength[i],
+				"elMaxLength":particularMaxLength[i]
+			});
+		});
+
+		$A($$("._text_20")).forEach(function(v,i,a){
+			lengthIndicatorList.push({
+				"sName" : a[i].name,
+				"nMaxLength" : 20
+			});
+		});
+
+		$A($$("._text_50")).forEach(function(v,i,a){
+			lengthIndicatorList.push({
+				"sName" : a[i].name,
+				"nMaxLength" : 50
+			});
+		});
+
+		if (nmp.front.order.order_sheet.getOption("isEasyBooking") == undefined || nmp.front.order.order_sheet.getOption("isEasyBooking") == false) {
+			lengthIndicatorList.push({"sName" : "deliveryMemo",
+				"nMaxLength" : 500,
+				"sType" :"char",
+				"elRealLength": $$.getSingle("em.deliveryMemoRealLength"),
+				"elMaxLength":$$.getSingle("em.deliveryMemoMaxLength")
+			});
+			this._htInstance["form_helper"].setLengthIndicator(lengthIndicatorList.$value());
+		}
+
+		$A($$("._onlyPriceTarget")).forEach(function(v,i,a){numberCheckList.push({"sName" : a[i].name, "rxPattern" : /[0-9,]+/g});});
+		$A($$("._onlyNumberTarget")).forEach(function(v,i,a){numberCheckList.push({"sName" : a[i].name, "rxPattern" : /[0-9]+/g});});
+		this._htInstance["form_helper"].setTypeCheck(numberCheckList.$value());
+
+		if (nmp.front.order.order_sheet.getOption("isEasyBooking") == undefined || nmp.front.order.order_sheet.getOption("isEasyBooking") == false) {
+			var autoFocusTarget = [{"sName" : "deliveryAddress.telNo1_1"},
+				{"sName" : "deliveryAddress.telNo1_2", "nLength" : 4},
+				{"sName" : "deliveryAddress.telNo1_3", "nLength" : 4}];
+			this._htInstance["form_helper"].setAutoFocus(autoFocusTarget);
+		}
+		if($$.getSingle("select[name=deliveryAddress.telNo2_1]") != undefined){
+			autoFocusTarget= [{"sName" : "deliveryAddress.telNo2_1"},
+				{"sName" : "deliveryAddress.telNo2_2", "nLength" : 4},
+				{"sName" : "deliveryAddress.telNo2_3", "nLength" : 4}];
+			this._htInstance["form_helper"].setAutoFocus(autoFocusTarget);
+		}
+		if($$.getSingle("input[name=purchaserSocialSecurityNoFirst]") != undefined){
+			autoFocusTarget= [{"sName" : "purchaserSocialSecurityNoFirst", "nLength" : 6},
+				{"sName" : "purchaserSocialSecurityNoSecond", "nLength" : 7}];
+			this._htInstance["form_helper"].setAutoFocus(autoFocusTarget);
+		}
+
+		autoFocusTarget= [{"sName" : "receiptInfo.socialNumberFirst", "nLength" : 6},
+			{"sName" : "receiptInfo.socialNumberSecond", "nLength" : 7}];
+		this._htInstance["form_helper"].setAutoFocus(autoFocusTarget);
+
+		autoFocusTarget= [{"sName" : "receiptInfo.cellPhoneFirst"},
+			{"sName" : "receiptInfo.cellPhoneSecond", "nLength" : 4},
+			{"sName" : "receiptInfo.cellPhoneThird", "nLength" : 4}];
+		this._htInstance["form_helper"].setAutoFocus(autoFocusTarget);
+
+		autoFocusTarget= [{"sName" : "receiptInfo.receiptCardFirst", "nLength" : 4},
+			{"sName" : "receiptInfo.receiptCardSend", "nLength" : 4},
+			{"sName" : "receiptInfo.receiptCardThird", "nLength" : 4},
+			{"sName" : "receiptInfo.receiptCardFourth", "nLength" : 6}];
+		this._htInstance["form_helper"].setAutoFocus(autoFocusTarget);
+
+		autoFocusTarget= [{"sName" : "receiptInfo.receiptBizNoFirst", "nLength" : 3},
+			{"sName" : "receiptInfo.receiptBizNoSecond", "nLength" : 2},
+			{"sName" : "receiptInfo.receiptBizNoThird", "nLength" : 5}];
+		this._htInstance["form_helper"].setAutoFocus(autoFocusTarget);
+
+		var orderForm = this._getElement("orderForm",true);
+
+		var hiddenTag = nmp.front.order.fieldMergeUtil._appendHiddenElement(orderForm,"_callback");
+		hiddenTag.value="nmp.front.order.order_sheet.refreshPage";
+
+		nmp.front.order.ui.AttachCommonInteractionToFormHelper(this._htInstance["form_helper"]);
+	},
+	_createTempOrderCallback : function(htResult){
+		if (htResult != null && htResult.bSuccess == true) {
+			$$.getSingle("input[name=tempOrderId]",$Form($$.getSingle("._orderCertForm")).$value()).value = htResult.htReturnValue.resultMap.orderId;
+			this.payByPayMethod(htResult.htReturnValue.resultMap.naverDonReserveKey);
+		} else {
+			this._htInstance["isProgress"] = false;
+			nmp.front.order.order_sheet.viewFailResult(htResult);
+		}
+	},
+	_failTempOrderCallback : function(htResult){
+		this._htInstance["isProgress"] = false;
+		if (htResult != null && htResult.bSuccess == false) {
+			if(htResult && !htResult.bSuccess && htResult.sErrorCode == "ACCESS_DENIED") {
+				eval(htResult.htReturnValue.script);
+			}else if(htResult && !htResult.bSuccess && htResult.sErrorCode == "INVALID_FORM_DATA") {
+				alert(htResult.htReturnValue.invalidItemList[0].message);
+				var errorType = htResult.htReturnValue.invalidItemList[0].type;
+				if(errorType == "field.required.donAgree"){
+					nmp.front.order.order_sheet.openDonAgree();
+				}else if(errorType == "field.required.pay.generalPayAmt.minamt" || errorType == "field.required.pay.generalPayAmt.maxamt"){
+					nmp.front.order.order_sheet.calculateTotalPrice();
+				}
+			}
+		}
+	},
+	_getPgId : function(payMethod, generalPaymentPrice){
+		payMethod = this._getBillingPayMethod(payMethod);
+		var payMeansInfos = this._getOption("payMeansInfos");
+		var pgId = payMeansInfos[payMethod];
+		if(payMethod == "CREDIT_CARD" || payMethod == "SCREDIT_CARD" || payMethod == "OCREDIT_CARD"){
+			pgId = bill.convertPgId(pgId, nmp.front.order.order_sheet.getCardCodeList().getValue(), nmp.front.order.order_sheet.getCardInstallmentPeriodClassCode(), generalPaymentPrice);
+		}
+		return pgId;
+	},
+	_getBillingPayMethod : function(payMethod) {
+		if (nmp.front.order.order_sheet.getOption("easyCardCode").has(payMethod)) {
+			return "OCREDIT_CARD";
+		} else if (nmp.front.order.order_sheet.getOption("easyBankCode").has(payMethod)) {
+			return "OBANK";
+		}
+		return payMethod;
+	},
+	/**
+	 * 결제 수단별 결제 모듈을 시작한다.
+	 */
+	payByPayMethod : function(reserveSeq){
+		var payMethod = nmp.front.order.order_sheet.getPayMethod();
+
+		if(payMethod == "DON"){
+			nmp.front.order.order_sheet.openDonPayPopup(reserveSeq);
+			this._htInstance["isProgress"] = false;
+			return;
+		}
+		var amt = $$.getSingle("._totalPayAmount").value;
+		if(isNaN(amt)){
+			amt = amt.replace(/[,]/g,"");
+			amt = parseInt(amt);
+		}
+		var payMeansInfos = this._getOption("payMeansInfos");
+		$Form($("commonForm")).value('AMT',amt);
+
+		// BC카드는 SCREDIT_CARD, 신한/삼성/현대는 OCREDIT_CARD의 pgid를 전달한다. (2015.7월 이후로는 OCREDIT_CARD로 통일
+		$Form($("commonForm")).value('PGID',payMeansInfos[this._getBillingPayMethod(payMethod)]);
+
+		var htUrls = this._getOption("urls");
+		if (nmp.front.order.order_sheet.getOption("easyCardCode").has(payMethod)) {
+			$Form($("commonForm")).value('RURL', htUrls["order.ordersheet.easyPay.creditCard.return.url"]);
+			$Form($("commonForm")).value('CURL', htUrls["order.ordersheet.easyPay.creditCard.cancel.url"]);
+		} else if (nmp.front.order.order_sheet.getOption("easyBankCode").has(payMethod)) {
+			$Form($("commonForm")).value('RURL', htUrls["order.ordersheet.easyPay.bank.return.url"]);
+			$Form($("commonForm")).value('CURL', htUrls["order.ordersheet.easyPay.bank.cancel.url"]);
+		} else if ('CREDIT_CARD' == payMethod) {
+			$Form($("commonForm")).value('RURL', htUrls["order.ordersheet.generalPay.creditCard.return.url"]);
+			$Form($("commonForm")).value('CURL', htUrls["order.ordersheet.generalPay.creditCard.return.url"]);
+		} else if ('BANK' == payMethod) {
+			$Form($("commonForm")).value('RURL', htUrls["order.ordersheet.generalPay.bank.return.url"]);
+			$Form($("commonForm")).value('CURL', htUrls["order.ordersheet.generalPay.bank.return.url"]);
+		}
+
+		var orderProducts = nmp.front.order.order_sheet.getOrderSnapshot().orderProducts;
+		if(orderProducts.length == 1){
+			$Form($("commonForm")).value('TITLE',orderProducts[0].name);
+		}else{
+			$Form($("commonForm")).value('TITLE',orderProducts[0].name+"외"+(orderProducts.length-1)+"건");
+		}
+
+		$Form($("commonForm")).value('SVCINF',$$.getSingle("input[name=tempOrderId]",$Form($$.getSingle("._orderCertForm")).$value()).value );
+
+		if (payMethod != "POINT" && payMethod != "SKIP") {
+			bill.init(payMeansInfos[this._getBillingPayMethod(payMethod)]);
+		}
+
+		if('VIRTUAL_ACCOUNT' == payMethod) {
+			$Form($("commonForm")).value('PERSON',$$.getSingle("input[name=order.memberName]").value);
+			var bankCode = $$.getSingle("select._nonBankBookPayBankCode").value;
+
+			if(bankCode.length == 2){
+				bankCode = "0"+bankCode;
+			}
+			$Form($("commonForm")).value('CORPCD',bankCode);
+			if (this._getOption("expDate") != undefined) {
+				$Form(commonForm).value('EXPDATE',this._getOption("expDate"));
+			}
+			bill.approval($("commonForm"),nmp.front.order.order_sheet.integration_cart.approvalNonBankResult);
+			return;
+		}else if('CREDIT_CARD' == payMethod || nmp.front.order.order_sheet.getOption("easyCardCode").has(payMethod)) {
+			this._htInstance["isProgress"] = false;
+			// 결제 수단에 따른 결제 모듈 초기화
+
+			// 결제수단 ID 및 상품 관련 정보 셋팅
+			$Form($("commonForm")).value('CORPCD', nmp.front.order.getCreditCardCode(nmp.front.order.order_sheet.getCardCodeList().getValue(), nmp.front.order.order_sheet.isEasyPaySelected()));
+			var instmo = nmp.front.order.order_sheet.getCardInstallmentPeriodClassCode();
+			$Form($("commonForm")).value('INSTMO', instmo);
+
+			if (nmp.front.order.order_sheet._isEasyPayCreditCard(payMethod)) {
+				var sCKey = nmp.front.order.order_sheet._getSelectedEasyPayCKey(payMethod);
+				$Form($("commonForm")).value('CKEY', sCKey);
+			}
+
+			if(nmp.front.order.order_sheet.macos && !(nmp.front.order.order_sheet.getOption("easyCardCode").has(payMethod) || nmp.front.order.order_sheet.getOption("easyBankCode").has(payMethod))){
+				nmp.front.order.order_sheet.macos.addParamsToForm($Form($("commonForm")), $$.getSingle("input[name=tempOrderId]",$Form($$.getSingle("._orderCertForm")).$value()).value);
+			}
+
+			// 무이자 적용 여부 체크하여 셋팅,
+			var freeInterestInstallmentType = $$.getSingle("._freeInterestInstallmentType");
+			if(freeInterestInstallmentType.value == "PRODUCT_FREE_INSTALLMENT" || freeInterestInstallmentType.value == "GENERAL_FREE_INSTALLMENT"){
+				$Form($("commonForm")).value('NOINTEREST', "Y");
+				if (freeInterestInstallmentType.value == "PRODUCT_FREE_INSTALLMENT") {
+					$Form($("commonForm")).value('NOINTSELLERYN', "Y");
+				} else {
+					$Form($("commonForm")).value('NOINTSELLERYN', "N");
+				}
+				var partMos = $$.getSingle("._partFreeInterestBurdenMonths");
+				if(partMos != undefined && partMos.value == ""){
+					$Form($("commonForm")).value('NOINTERESTTYPE', "01");
+				}else{
+					$Form($("commonForm")).value('NOINTERESTTYPE', "02");
+				}
+			}else{
+				$Form($("commonForm")).value('NOINTEREST', "N");
+			}
+			if($$.getSingle("input._cardPointCheckBox") != undefined && $$.getSingle("input._cardPointCheckBox").checked){
+				$Form($("commonForm")).value('POINTFG', "Y");
+			}else{
+				$Form($("commonForm")).value('POINTFG', "N");
+			}
+
+			// 인증 처리(결제정보 입력을 위한 팝업이 나옴)
+			bill.approval($("commonForm"),nmp.front.order.order_sheet.integration_cart.approvalCreditCardResult);
+			return;
+		}else if('MOBILE' == payMethod) {
+			this.openMobilePay();
+
+			var isPin = this._htInstance["mobilePay"].isPin;
+			var isPinPayMember = this._htInstance["mobilePay"].isPinPayMember;
+
+			if (!isPin || !isPinPayMember) {
+				this._htInstance["isProgress"] = false;
+			}
+			return;
+		}else if('BANK' == payMethod || nmp.front.order.order_sheet.getOption("easyBankCode").has(payMethod)) {
+			this._htInstance["isProgress"] = false;
+
+			if (nmp.front.order.order_sheet._isEasyPayBank(payMethod)) {
+				var sAccountKey = nmp.front.order.order_sheet._getSelectedEasyPayCKey(payMethod);
+
+				$Form($("commonForm")).value('CORPCD', payMethod);
+				$Form($("commonForm")).value('CKEY', sAccountKey);
+			}
+
+			bill.approval($("commonForm"), nmp.front.order.order_sheet.integration_cart.approvalBankResult);
+			return;
+		} else if ('POINT' == payMethod || 'SKIP' == payMethod) {
+			nmp.front.order.order_sheet.integration_cart._htInstance["isProgress"] = false;
+
+			this.orderApplyWithAuthentification();
+		}
+	},
+	makeAutoPaymentServiceList : function(htMessage) {
+		var resultString = "";
+		if (htMessage.autoPaymentServiceList != undefined && htMessage.autoPaymentServiceList != "") {
+			resultString += "정기결제(" + htMessage.autoPaymentServiceList + ")";
+		}
+		if (htMessage.autoCharge != undefined && htMessage.autoCharge != "") {
+			resultString += ((resultString == "") ? "" : "\n") + htMessage.autoCharge;
+		}
+		if (htMessage.nspCpName != undefined && htMessage.nspCpName != "") {
+			resultString += ((resultString == "") ? "" : "\n") + htMessage.nspCpName;
+		}
+		return resultString;
+	},
+	pinPayAgreeAndOpenMobilePayPopup : function(){
+		this._setOption("cphSmplAgrYn", "Y");
+		this.openMobilePay();
+	},
+	pinClose : function(){
+		this._setOption("cphSmplRegYn", "N");
+		$Form($("commonForm")).value("JOINSTATUS","N");
+	},
+
+	/** 승인번호 확인 및 결제 완료 처리*/
+	openMobilePay : function(){
+
+		var params = this.settingPinPayParams(params);
+		this._htInstance["mobilePay"] = params;
+
+		var mobilePayActionType = "";
+		var mobilePayType = "";
+
+		var payPopup;
+
+		if(this._htInstance["mobilePay"].isPin != true){
+			payPopup = nmp.openPopup("about:blank", ["width=575", "height=630"], "payPopup");
+			mobilePayActionType = "PAY_REQ";
+			mobilePayType = "mobilePay";
+		} else {
+			mobilePayType = "mobilePinPay";
+			if(this._htInstance["mobilePay"].isPinPayMember){
+				mobilePayActionType = "PIN_PAY_REQ";
+				var value  = ($$.getSingle("input[name=mobilePassword]").value!=null) ? $$.getSingle("input[name=mobilePassword]").value : "";
+				$$.getSingle("input[name=currentPassword]").value = value;
+			}else{
+				payPopup = nmp.openPopup("about:blank", ["width=550", "height=560"], "payPopup");
+				mobilePayActionType = "PIN_PAY_REQ_WITH_REGIST";
+			}
+		}
+
+		this._htInstance["mobilePopup"] = payPopup;
+		$$.getSingle("input[name=mobilePayActionType]").value = mobilePayActionType;
+		$$.getSingle("input[name=phoneNo]").value = this._htInstance["mobilePay"].cellphoneNumber;
+		$$.getSingle("input[name=isPin]").value = this._htInstance["mobilePay"].isPin;
+		$$.getSingle("input[name=isPinPayMember]").value = this._htInstance["mobilePay"].isPinPayMember;
+		$$.getSingle("input[name=isPinPayAgree]").value = this._htInstance["mobilePay"].isPinPayAgree;
+
+		var applyNo = undefined;
+		if($$.getSingle("input._applyNo") != undefined){
+			applyNo = $$.getSingle("input._applyNo").value;
+		}
+		var mobilePay = this._htInstance["mobilePay"];
+		var payType = this._htInstance["mobilePay"].payType;
+
+		var isPin = this._htInstance["mobilePay"].isPin;
+		var isPinPayMember = this._htInstance["mobilePay"].isPinPayMember;
+
+		if(isPin && isPinPayMember){
+			this.approvalMobile("", this._htInstance["mobilePay"].isPin);
+		}else{
+			this.approvalMobile(this._htInstance["mobilePay"].cellphoneNumber, this._htInstance["mobilePay"].isPin, "payPopup");
+		}
+
+		return;
+	},
+
+	applyMobile : function() {
+		if (this._getOption("isSwitching") != undefined && this._getOption("isSwitching")) {
+			if(this._htInstance["mobilePay"].isPin && this._htInstance["mobilePay"].isPinPayMember){
+				var pinNo = $$.getSingle("input[name=mobilePassword]").value;
+				this.orderApply(pinNo, true,  this._htInstance["mobilePay"].isPinPayMember);
+			}else {
+				this.orderApply();
+			}
+		} else {
+			var htPinPay = undefined;
+			if( this._htInstance["mobilePay"] != undefined ){
+				if(this._htInstance["mobilePay"].isPin && this._htInstance["mobilePay"].isPinPayMember){
+					var pinNo = $$.getSingle("input[name=mobilePassword]").value;
+					htPinPay = {"pinNo" : pinNo, "isPin" : true, "isPinPayMember" :  this._htInstance["mobilePay"].isPinPayMember};
+				}
+			}
+
+			this.orderApplyWithAuthentification(htPinPay)
+		}
+	},
+
+	/**
+	 * 휴대폰 결제 인증 param setting
+	 */
+	settingPinPayParams : function(isPin){
+
+		var params = $S($Form($$.getSingle("._orderCertForm")).serialize()).parseString();
+		var payMeansInfos = this._getOption("payMeansInfos");
+
+		var phoneNo = "";
+		$A($$("._payForm.cphNo ")).forEach(function(v,i,a){
+			phoneNo += a[i].value;
+		});
+
+		$Form($("commonForm")).value('SVCINF',$$.getSingle("input[name=tempOrderId]",$Form($$.getSingle("._orderCertForm")).$value()).value);
+		params["prvsnurl"] = payMeansInfos["MOBILE_prvsnurl"];
+		params["cinf"] = payMeansInfos["MOBILE_cinf"];
+
+		if(nmp.front.order.order_sheet._htInstance["isPinPay"] == undefined){
+			params["isPin"] = (isPin == undefined) ? "" : isPin;
+		}else{
+			params["isPin"] = nmp.front.order.order_sheet._htInstance["isPinPay"];
+		}
+
+		params["isPinPayMember"] = nmp.front.order.order_sheet._getOption("isPinPayMember");
+		params["isPinPayAgree"] = nmp.front.order.order_sheet._getOption("isPinPayAgree");
+
+		if(this._getOption("cphSmplRegYn") != undefined){
+			params["cphSmplRegYn"] = this._getOption("cphSmplRegYn");
+		}
+		if(this._getOption("cphSmplAgrYn") != undefined){
+			params["cphSmplAgrYn"] = this._getOption("cphSmplAgrYn");
+		}
+		if(this._getOption("cphSmplCorpCd") != undefined){
+			params["mobileOperator"] = this._getOption("cphSmplCorpCd");
+			params["cphSmplCorpCd"] = this._getOption("cphSmplCorpCd");
+		}
+		if(this._getOption("cphSmplPayNo") != undefined){
+			params["cphSmplPayNo"] = this._getOption("cphSmplPayNo");
+			params["cellphoneNumber"] = phoneNo;
+		}
+		if(this._getOption("appliedPinPay") != undefined){
+			params["appliedPinPay"] = this._getOption("appliedPinPay");
+		}
+		return params;
+	},
+
+	/**
+	 * 신용카드 결제 인증 처리 완료 callback method
+	 * @param commonForm
+	 */
+	approvalCreditCardResult : function(commonForm){
+		if(commonForm['APPROVALSEQ'].value == ""){
+			nmp.front.order.order_sheet.integration_cart._htInstance["isProgress"] = false;
+			alert(commonForm['MSG'].value);
+			return;
+		}
+
+		var orderCertForm = $Form($$.getSingle("._orderCertForm"));
+		var payMethod = nmp.front.order.order_sheet.getPayMethod();
+		orderCertForm.value('approvalSeq',commonForm['APPROVALSEQ'].value);
+		orderCertForm.value('authKey',commonForm['AUTHNO'].value);
+		orderCertForm.value('pgId',nmp.front.order.order_sheet.integration_cart._getPgId(payMethod, nmp.front.order.order_sheet.getGeneralPayAmount()) );
+
+		nmp.front.order.order_sheet.integration_cart._htInstance["isProgress"] = false;
+		nmp.front.order.order_sheet.integration_cart.orderApplyWithAuthentification();
+	},
+	/**
+	 * 무통장 입금 인증 처리 완료 callback method
+	 * @param commonForm
+	 */
+	approvalNonBankResult : function(commonForm){
+		nmp.front.order.order_sheet.integration_cart._htInstance["isProgress"] = false;
+		if(commonForm['ACCTNO'].value == ""){
+			alert(commonForm['MSG'].value);
+			return;
+		}
+		var orderCertForm = $Form($$.getSingle("._orderCertForm"));
+		orderCertForm.value('accountNo',commonForm['ACCTNO'].value);
+		orderCertForm.value('endDate',commonForm['ENDDATE'].value);
+		orderCertForm.value('approvalSeq',commonForm['APPROVALSEQ'].value);
+		orderCertForm.value('pgId',commonForm['PGID'].value);
+
+		nmp.front.order.order_sheet.integration_cart.orderApplyWithAuthentification();
+	},
+	approvalBankResult : function(commonForm){
+
+		if(commonForm['APPROVALSEQ'].value == ""){
+			nmp.front.order.order_sheet.integration_cart._htInstance["isProgress"] = false;
+			alert(commonForm['MSG'].value);
+			return;
+		}
+
+		var orderCertForm = $Form($$.getSingle("._orderCertForm"));
+		orderCertForm.value('approvalSeq',commonForm['APPROVALSEQ'].value);
+		orderCertForm.value('pgId',commonForm['PGID'].value);
+		nmp.front.order.order_sheet.integration_cart._htInstance["isProgress"] = false;
+		nmp.front.order.order_sheet.integration_cart.orderApplyWithAuthentification();
+	}
+	,
+	/**
+	 * 휴대폰 결제 인증 요청
+	 */
+	approvalMobile : function(mobileNo, isPin, preIframeName, isLostPasswordChange){
+		var payMeansInfos = this._getOption("payMeansInfos");
+		var htUrls = this._getOption("urls");
+
+		if(isPin != undefined){
+			if(isPin){
+				$Form($("commonForm")).value("PGID", payMeansInfos["MOBILE_PIN"]);
+			}else{
+				$Form($("commonForm")).value("PGID", payMeansInfos["MOBILE"]);
+			}
+			var orderCertForm = $Form($$.getSingle("._orderCertForm"));
+			orderCertForm.value('pgId',commonForm['PGID'].value);
+		}
+		$Form($("commonForm")).value('PAYNO',mobileNo);
+		$Form($("commonForm")).value('USERID',"saibi00");
+
+		$Form($("commonForm")).value('CURL',((isPin != undefined && isPin) ? htUrls["order.ordersheet.pinMobile.return.url"] : htUrls["order.ordersheet.mobile.return.url"]));
+		$Form($("commonForm")).value('RURL',((isPin != undefined && isPin) ? htUrls["order.ordersheet.pinMobile.return.url"] : htUrls["order.ordersheet.mobile.return.url"]));
+		$Form(commonForm).value('CLOSEURL',htUrls["order.ordersheet.mobile.return.url"] + "?close=true");
+
+		$Form($("commonForm")).value('ISSKNORMALUSER','NONE');
+		$Form($("commonForm")).value('PREIFRAME',preIframeName);
+
+		if (isLostPasswordChange != undefined) {
+			$Form($("commonForm")).value('LOSTPWCHANGEFG','Y');
+		} else {
+			$Form($("commonForm")).value('LOSTPWCHANGEFG','');
+		}
+
+		$Form($("orderCertForm")).value('phoneNo',mobileNo);
+
+		bill.approval($("commonForm"), $Fn(this.approvalMobileResult, this).bind(), $Fn(this.newSubmitMobileForm, this).bind(isPin));
+	},
+	/**
+	 * 휴대폰 결제 인증 처리 완료 callback method
+	 */
+	approvalMobileResult : function(commonForm){
+		this._htInstance["isProgress"] = false;
+
+		if(commonForm['MSG'].value == "success"){
+			var orderCertForm = $Form($$.getSingle("._orderCertForm"));
+			orderCertForm.value('pgId',commonForm['PGID'].value);
+			orderCertForm.value('approvalSeq',commonForm['APPROVALSEQ'].value);
+			nmp.front.order.order_sheet.integration_cart.applyMobile();
+
+			if((orderCertForm.value("mobilePayActionType") != 'PIN_PAY_REQ') || ($Form($("commonForm")).value('LOSTPWCHANGEFG') == 'Y')){
+			nmp.front.order.order_sheet.integration_cart._htInstance["mobilePopup"].close();
+			}
+		} else {
+			alert(commonForm['MSG'].value);
+		}
+	},
+	newSubmitMobileForm : function(isPin, commonForm) {
+		var elPgForm = $$.getSingle("#" + commonForm["PGFORMNAME"].value);
+
+		var htSize = {};
+		if (isPin) {
+			htSize = {
+				"nWidth" : 560,
+				"nHeight" : 560,
+				"nMaxWidth" : 0,
+				"nMaxHeight" : 0
+			};
+		} else {
+			htSize = {
+				"nWidth" : 500,
+				"nHeight" : 610,
+				"nMaxWidth" : 0,
+				"nMaxHeight" : 0
+			};
+		}
+		elPgForm.submit();
+	},
+	submitMobileForm : function(isPin, commonForm) {
+		var elPgForm = $$.getSingle("#" + commonForm["PGFORMNAME"].value);
+		if (elPgForm != undefined) {
+			nmp.front.order.order_sheet.integration_cart.getMobilePayPopup().nmp.front.order.order_sheet.pay.mobile.copyMobileApprovalForm(commonForm, elPgForm.outerHTML, isPin);
+			document.charset = commonForm['CHARSET'].value;
+		}
+	},
+	orderApplyWithAuthentification : function(htPinPay) {
+		// 결제 인증 수행
+		switch (nmp.front.order.order_sheet.getAuthentificationLevel()) {
+			case "ATH001":
+				if (htPinPay == undefined) {
+					this.orderApply();
+				} else {
+					this.orderApply(htPinPay["pinNo"], htPinPay["isPin"], htPinPay["isPinPayMember"]);
+				}
+				break;
+			case "ATH002":
+			case "ATH003":
+				nmp.front.order.order_sheet.openAuthentificationPopup(htPinPay);
+				break;
+			case "ATH098":
+				nmp.front.order.order_sheet.confirmCheckPayLimit();
+				break;
+			case "ATH099":
+				break;
+			default:
+				break;
+		}
+	},
+	/**
+	 * 결제 완료 처리하기
+	 * @param we
+	 */
+	orderApply : function(pinNo, isPin, isPinPayMember){
+		try{
+			nmp.front.order.order_sheet.showPayLoadingLayer();
+		}catch(e){}
+
+		var orderCertForm = $Form($$.getSingle("._orderCertForm"));
+		var payMeansClass = nmp.front.order.order_sheet.getPayMethod();
+		orderCertForm.value('payMeansClass',nmp.front.order.order_sheet.getOption("easyCardCode").has(payMeansClass) ? 'CREDIT_CARD' : (nmp.front.order.order_sheet.getOption("easyBankCode").has(payMeansClass) ? "BANK" : payMeansClass));
+
+		if(pinNo != undefined) {
+			orderCertForm.value('pinNo',pinNo);
+		}
+		if(isPin != undefined){
+			orderCertForm.value('isPin',isPin);
+			if(isPin){
+				orderCertForm.value('pgId',commonForm['PGID'].value);
+			}
+		} else {
+			orderCertForm.value('isPin',false);
+		}
+		if(isPinPayMember != undefined){
+			orderCertForm.value('isPinPayMember',isPinPayMember);
+		}
+
+		var amt = $$.getSingle("._totalPayAmount").value;
+		if(isNaN(amt)){
+			amt = amt.replace(/[,]/g,"");
+			amt = parseInt(amt);
+		}
+		orderCertForm.value('payAmt', amt);
+
+		var bUsePointAllYn = nmp.front.order.order_sheet.getUsePointAllYn();
+		if (bUsePointAllYn != undefined) {
+			orderCertForm.value('usePointAllYn', bUsePointAllYn);
+		}
+
+		var fGetAlwaysUsePayLater = nmp.front.order.order_sheet.getAlwaysUsePayLater;
+		var bAlwaysUsePayLater = fGetAlwaysUsePayLater && nmp.front.order.order_sheet.getAlwaysUsePayLater();
+		if(orderCertForm.element('usePayLaterAllYn') && fGetAlwaysUsePayLater != undefined){
+			orderCertForm.value('usePayLaterAllYn', bAlwaysUsePayLater ? true : false);
+		}
+
+		var bAlwaysUsePickupLocationYn = nmp.front.order.order_sheet.isAlwaysUsePickupLocation();
+		if (bAlwaysUsePickupLocationYn != undefined) {
+			orderCertForm.value('alwaysUsePickupLocationYn', bAlwaysUsePickupLocationYn);
+		}
+
+		var bAddedPickupLocationYn = nmp.front.order.order_sheet.isAddedPickupLocation();
+		if (bAddedPickupLocationYn != undefined) {
+			orderCertForm.value('addedPickupLocationYn', bAddedPickupLocationYn);
+		}
+
+		var sPayMethodCodeType = payMeansClass;
+		var sPayMethodCode = "";
+
+		if (payMeansClass == "CREDIT_CARD") {
+			sPayMethodCode = nmp.front.order.order_sheet.getCardCodeList().getValue();
+		} else if (nmp.front.order.order_sheet.getOption("easyCardCode").has(payMeansClass)) {
+			sPayMethodCodeType = 'CREDIT_CARD';
+			sPayMethodCode = payMeansClass;
+		} else if (nmp.front.order.order_sheet.getOption("easyBankCode").has(payMeansClass)) {
+			sPayMethodCodeType = 'BANK';
+			sPayMethodCode = payMeansClass;
+		}
+
+		var htChargePointInfo = nmp.front.order.order_sheet.getChargePointInfo();
+
+		if (htChargePointInfo["amount"] > 0) {
+			orderCertForm.value('pointChargeCorpCd', htChargePointInfo["bankCode"]);
+			orderCertForm.value('pointChargeCorpKey', htChargePointInfo["accountKey"]);
+			orderCertForm.value('pointChargeAmount', htChargePointInfo["amount"]);
+			orderCertForm.value('useChargePointYn', true);
+		} else {
+			if (nmp.front.order.order_sheet.isChargePointAvailableState()) {
+				orderCertForm.value('useChargePointYn', false);
+			}
+		}
+
+		var payLaterAmount = nmp.front.order.order_sheet._getPayLaterAmount();
+		var payLaterAvailable = nmp.front.order.order_sheet._payLaterAvailable();
+
+		if (payLaterAmount) {
+			orderCertForm.value('usePayLaterYn', true);
+		} else {
+			if (payLaterAvailable) {
+				orderCertForm.value('usePayLaterYn', false);
+			}
+		}
+
+		var orderApplyForm = new nmp.component.FormHelper({
+			"elRoot" : this._getElement("orderCertForm", true),
+			"bAjaxRequest" : true,
+			"bValidationOnly" : false,
+			"sAction" : "/orderSheetApply/ajax"
+		});
+
+		orderApplyForm.attach("success", $Fn(function(weBeforeSubmit){
+			var htResult = weBeforeSubmit.htResult;
+			weBeforeSubmit.stop();
+			if (htResult != null && htResult.bSuccess == true) {
+				var htReturnValue = htResult.htReturnValue;
+				this.moveOrderDone(this._getBillingPayMethod(payMeansClass), sPayMethodCodeType, sPayMethodCode, htReturnValue);
+			}
+		},this).bind());
+		orderApplyForm.attach("fail", function(weBeforeSubmit){
+			var htResult = weBeforeSubmit.htResult;
+			weBeforeSubmit.stop();
+			if (htResult != null && htResult.bSuccess == false) {
+				if(htResult && !htResult.bSuccess && htResult.sErrorCode == "ACCESS_DENIED") {
+					eval(htResult.htReturnValue.script);
+				}else if (htResult.sErrorMessage != null) {
+					alert(htResult.sErrorMessage);
+				}else if(htResult && !htResult.bSuccess && htResult.sErrorCode == "INVALID_FORM_DATA") {
+					alert(htResult.htReturnValue.invalidItemList[0].message);
+				}
+				try{
+					nmp.front.order.order_sheet.resetTempLayer();
+				}catch(e){}
+			}
+		});
+
+		if (payMeansClass == "VIRTUAL_ACCOUNT") {
+			var refundAccountKey = nmp.front.order.order_sheet.selectedRefundAccount();
+			orderCertForm.value('refundAccountKey',refundAccountKey);
+		}
+
+		// 배송지 정보. 결제 정상완료시 배송지 정보를 저장하기 위해 추가함.
+		var params = $H();
+		$A($$(".deliveryInfo input")).forEach(function(v,i,a){
+			if((a[i].type == "radio" || a[i].type == "checkbox") && a[i].checked == false){
+				$A.Continue();
+			}
+			params.add(a[i].name,a[i].value);
+		});
+
+		var backUrl = this._getOption("backUrl");
+
+		params.add("backUrl", backUrl);
+		params.add("_callback", "nmp.front.order.order_sheet.integration_cart.orderApply()");
+		orderApplyForm._applyParameterToForm(params.$value());
+		console.log(jindo.$H(orderApplyForm.getFormData()).toQueryString());
+
+		orderApplyForm.submit();
+	},
+	moveOrderDone : function(billingPayMethod, payMeansClass, payMethodCode, htReturnValue){
+		if(htReturnValue.orderId != undefined){
+			/*if(payMeansClass == "MOBILE"){
+			 nmp.front.order.order_sheet.integration_cart._htInstance["mobilePopup"].nmp.front.order.popup.closePopup();
+			 }*/
+			if(nmp.front.order.order_sheet.storage){
+				nmp.front.order.order_sheet.storage.removeOrderInfo();
+			}
+			nmp.moveUrl("/orderSheet/result/"+htReturnValue.orderId + (this._getOption("orderClass")=="CHECKOUT" ? "/checkout" : "/integrationCart"));
+		}else{
+			try{
+				nmp.front.order.order_sheet.resetTempLayer();
+			}catch(e){}
+			var params ={};
+			params["errorMessage"]=htReturnValue.errorMessage;
+			if(htReturnValue.customerCenterTelNo != undefined) {
+				params["customerCenterTelNo"] = htReturnValue.customerCenterTelNo;
+			}
+
+			if (htReturnValue.errorCode != undefined) {
+				switch (htReturnValue.errorCode) {
+					case "apply.error.pay":
+					case "apply.error.plugin":
+						params["payMeansClass"] = payMeansClass;
+						params["payMethodCode"] = payMethodCode;
+						break;
+					case "apply.error.charge":
+						params["isReloadRequired"] = true;
+						break;
+					case "apply.error.password.reset":
+						alert("안전한 결제를 위해 변경된 비밀번호로 다시 한번 결제해주시기 바랍니다.");
+						return;
+					default:
+						break;
+				}
+			}
+			nmp.openPopup("/orderSheetPopup/pay/fail",["width=520", "height=450"], "payFailPop",params);
+		}
+	},
+	/**
+	 * 이전 페이지로 이동
+	 * @param we
+	 */
+	previousPage : function(we) {
+		var backUrl = this._getOption("backUrl");
+		if(backUrl != ""){
+			var msg = "";
+			if(backUrl.indexOf("main/cart") > -1){
+				msg = "장바구니로 이동하시겠습니까?";
+			}else{
+				msg = "상품 상세 페이지로 이동하시겠습니까?";
+			}
+			if(confirm(msg)){
+				nmp.moveUrl(backUrl);
+			}
+		}else{
+			alert("이전페이지로 갈 수 없습니다.");
+		}
+
+	},
+	/**
+	 * 결제하기 처리, 임시주문데이터를 생성한다.
+	 * @param we
+	 */
+	account : function(we) {
+		if(this._htInstance["isProgress"] == undefined || this._htInstance["isProgress"] == false){
+			this._htInstance["isProgress"] = true;
+		}else{
+			return;
+		}
+
+		if (nmp.front.order.order_sheet._isValidatePickupAndEntry()) {
+			this._htInstance["isProgress"] = false;
+			return;
+		}
+
+		// 가주문 데이터 생성하기
+		var generalPaymentPrice = nmp.front.order.order_sheet.getGeneralPayAmount();
+		var payMeansClass = nmp.front.order.order_sheet.getPayMethod();
+
+		if (nmp.front.order.order_sheet._isEasyPayBank(payMeansClass)) {
+			//간편결제계좌이면서 은행 전체 점검중인 케이스
+			if (nmp.front.order.order_sheet.isAllEasyBankUnderMaintenance()) {
+				alert("은행 시스템 작업으로 인하여 계좌 간편결제를 이용하실 수 없습니다.");
+				this._htInstance["isProgress"] = false;
+				return;
+			}
+			//간편결제계좌이면서 점검중인 케이스
+			if (!nmp.front.order.order_sheet.isSelectedEasyPayBankPayable(payMeansClass)) {
+				alert("은행 시스템 점검으로 인해 해당 계좌로 간편결제를 이용하실 수 없습니다.");
+				this._htInstance["isProgress"] = false;
+				return;
+			}
+		}
+
+		//간편결제 등록패널 일경우
+		if (nmp.front.order.order_sheet.isEasyPayRegistrationMethod(payMeansClass)) {
+			var bCanProceed = this._canProceedAccountAfterEasyPayRegistration(payMeansClass);
+
+			if (bCanProceed === true) {
+				nmp.front.order.order_sheet.openEasyPayPopupByPayMethod(payMeansClass);
+
+				this._htInstance["isProgress"] = false;
+				return;
+			} else {
+				this._htInstance["isProgress"] = false;
+				return;
+			}
+		}
+
+		payMeansClass = this._getBillingPayMethod(payMeansClass);
+		var payMeansInfos = this._getOption("payMeansInfos");
+		if (payMeansClass != "" && payMeansClass != "POINT" && payMeansClass != "DON" && payMeansClass != "SKIP") {
+			var minamt = payMeansInfos[payMeansClass+"_minamt"];
+			var maxamt = payMeansInfos[payMeansClass+"_maxamt"];
+			var alertMessage = "";
+			if(minamt == undefined || maxamt == undefined ){
+				alertMessage = "해당 결제수단으로는 결제가 불가능합니다.";
+				this._htInstance["isProgress"] = false;
+			}
+			if(minamt !=0 && minamt > generalPaymentPrice){
+				alertMessage = nmp.front.order.ui.setThousandComma(minamt) + "원 미만은 해당 결제수단으로 결제하실 수 없습니다.";
+				nmp.front.order.order_sheet.calculateTotalPrice();
+				this._htInstance["isProgress"] = false;
+			}
+
+			if(maxamt != 0 && maxamt < generalPaymentPrice){
+				alertMessage = nmp.front.order.ui.setThousandComma(maxamt) + "원 초과는 해당 결제수단으로 결제하실 수 없습니다.";
+				this._htInstance["isProgress"] = false;
+			}
+
+			if(!this._htInstance["isProgress"]){
+				nmp.front.order.order_sheet.closePayPopup();
+				alert(alertMessage);
+				return;
+			}
+
+		}
+
+		var pgId = this._getPgId(payMeansClass, generalPaymentPrice);
+		this._htInstance["form_helper"].setValue("billingPgId",pgId);
+
+		var _wfValidationCallback = $Fn(this._validationCallback, this).bind();
+		nmp.requestAjax(this._htInstance["form_helper"].getActionUrl() + "/validate",
+			{"orderCreateJson" : nmp.front.order.order_sheet.createOrderCreateFormJson(),
+				"_callback" : "nmp.front.order.order_sheet.integration_cart.account()"},
+			{
+				method : "post",
+				onload : _wfValidationCallback
+			});
+	},
+	_canProceedAccountAfterEasyPayRegistration : function (sPayMeansClass) {
+		var sEasyPayText = nmp.front.order.order_sheet.getEasyPayTextByPayMethod(sPayMeansClass);
+		var sConfirmMessage = "간편결제 " + sEasyPayText + "를 등록하신 후 결제를 진행하시겠습니까?";
+
+		return confirm(sConfirmMessage);
+	},
+	_validationCallback : function(htResult){
+		if (htResult != null && htResult.bSuccess == true) {
+			if (htResult.htReturnValue.resultMap.authentificationLevel == "ATH099") {
+				nmp.moveUrl("/orderSheet/result/blocked");
+
+				nmp.front.order.order_sheet.closePayPopup();
+				return;
+			}
+
+			if (htResult.htReturnValue.resultMap.giftCertificationPurchaseLimitExceeded != undefined && htResult.htReturnValue.resultMap.giftCertificationPurchaseLimitExceeded) {
+				alert("모바일쿠폰/상품권 및 지류/상품권 카테고리 상품 일 결제금액 한도 50만원을 초과하여 결제가 불가합니다.");
+				this._htInstance["isProgress"] = false;
+				return;
+			}
+			
+			if (htResult.htReturnValue.resultMap.under14age != undefined && htResult.htReturnValue.resultMap.under14age) {
+				alert("미성년자 결제한도 금액 초과로 결제가 불가능합니다.");
+				this._htInstance["isProgress"] = false;
+				return;
+			}
+
+			if (htResult.htReturnValue.resultMap.under19age != undefined && htResult.htReturnValue.resultMap.under19age) {
+				if (htResult.htReturnValue.resultMap.remainingOrderableAmount == undefined) {
+					alert("현재 미성년자 한도 확인이 되지 않아 주문이 불가합니다.\n잠시 후 재시도 부탁드립니다.");
+				} else {
+					alert("미성년자 월 결제한도 45만원 금액 초과로 결제가 불가능합니다." + ((!isNaN(htResult.htReturnValue.resultMap.remainingOrderableAmount) && htResult.htReturnValue.resultMap.remainingOrderableAmount > 0) ? "\n이번 달 추가 결제 가능 금액은 " + nmp.front.order.ui.setThousandComma(htResult.htReturnValue.resultMap.remainingOrderableAmount) + "원 입니다." : ""));
+				}
+				this._htInstance["isProgress"] = false;
+				return;
+			}
+
+			if (htResult.htReturnValue.resultMap.needAlertAboutHopeDelivery) {
+				if (!confirm("나중에 결제/무통장입금 결제수단은 결제완료/입금시점에 따라\n배송 일자가 조정될 수 있으니, 판매자에게 반드시 배송 일자를\n다시 확인하시기 바랍니다.")) {
+					this._htInstance["isProgress"] = false;
+					return;
+				}
+			}
+
+			nmp.front.order.order_sheet.setFdsUuid(htResult.htReturnValue.resultMap.fdsUuid);
+			nmp.front.order.order_sheet.setNaverToken(htResult.htReturnValue.resultMap.naverToken);
+			nmp.front.order.order_sheet.setAuthentificationToken(htResult.htReturnValue.resultMap.authentificationToken);
+			nmp.front.order.order_sheet.setAuthentificationLevel(htResult.htReturnValue.resultMap.authentificationLevel);
+
+			this.continueTempOrderAfterValidate();
+		}else{
+			this._htInstance["isProgress"] = false;
+			nmp.front.order.order_sheet.viewFailResult(htResult);
+		}
+	},
+	createTempOrderAfterValidate : function(){
+		var _wfSuccessCallback = $Fn(this._createTempOrderCallback, this).bind();
+		nmp.requestAjax(this._htInstance["form_helper"].getActionUrl(),
+			{"orderCreateJson" : nmp.front.order.order_sheet.createOrderCreateFormJson(),
+				"_callback" : "nmp.front.order.order_sheet.integration_cart.createTempOrderAfterValidate()"},
+			{
+				method : "post",
+				onload : _wfSuccessCallback
+			});
+	},
+	continueTempOrderAfterValidate : function() {
+		if (nmp.front.order.order_sheet.showOpenbankingAgreeLayer()) {
+			nmp.front.order.order_sheet.showLayer("openbankingAgree");
+			return;
+		}
+
+		if (nmp.front.order.order_sheet.getOption("hasTraditionalAlcoholProduct") && nmp.front.order.order_sheet.getAdultAuthenticationToken() == undefined) {
+			nmp.front.order.order_sheet.showLayer("adultAuthentication");
+			return;
+		}
+
+		// 비밀번호 등록 여부 선 검증
+		if (!this._getOption("isNaverPayPasswordAvailable") && nmp.front.order.order_sheet.getAuthentificationLevel() == "ATH002") {
+			nmp.front.order.order_sheet.openPasswordAuthentificationPage();
+			return;
+		}
+
+		this.createTempOrderAfterValidate();
+	},
+	/**
+	 * 무이자 할부 안내 팝업 정보
+	 * @param we
+	 * @param isVisible
+	 * @param bundleCode
+	 */
+	viewInterestInfo : function(we, isVisible, cardcode){
+		if(isVisible == "true"){
+			var detailInfoDivisionElement = $Element($$.getSingle("div ._noInstallmentInfo"));
+			$Element($$.getSingle("div ._noInstallmentInfo")).show();
+
+			var installmentsInfo=this._getOption("noInterestArr").$(cardcode);
+			var freeInterests = this._getOption("freeInterests")[cardcode];
+			var creditCardInfo = undefined;
+
+			if(nmp.front.order.order_sheet.getCreditCardInfos() != undefined){
+				creditCardInfo = nmp.front.order.order_sheet.getCreditCardInfos()[cardcode];
+			}
+			var noInterstStr = "";
+			if(installmentsInfo != undefined){
+				installmentArr = installmentsInfo.split(",");
+				var exceptionList = $A();
+				if(freeInterests != undefined){
+					noInterstStr = "<p>";
+					for(var i = 0 ; i < freeInterests.length ; i++){
+						if(exceptionList.has(freeInterests[i].month) || freeInterests[i].chrgtype == "03"){
+							continue;
+						}
+						month = freeInterests[i].month;
+						exceptionList.push(freeInterests[i].month);
+						if(noInterstStr == ""){
+							noInterstStr = freeInterests[i].month;
+						}else{
+							noInterstStr +=freeInterests[i].month;
+						}
+						for(var j = 0; j < freeInterests.length; j++){
+							if(freeInterests[i].month != freeInterests[j].month
+								&& freeInterests[i].minamt == freeInterests[j].minamt
+								&& freeInterests[i].frinttype == freeInterests[j].frinttype
+								&& freeInterests[i].partmos == freeInterests[j].partmos
+							){
+								if(noInterstStr == ""){
+									noInterstStr = freeInterests[j].month;
+								}else{
+									noInterstStr += ","+ freeInterests[j].month;
+								}
+								exceptionList.push(freeInterests[j].month);
+							}
+						}
+						noInterstStr += "개월 무이자";
+						if(freeInterests[i].partmos != undefined && freeInterests[i].partmos != ""){
+							noInterstStr +=  "(<em>"+freeInterests[i].partmos+"회차 수수료</em> 고객부담)";
+						}
+						if(freeInterests[i].minamt != undefined){
+							if(freeInterests[i].minamt >= 10000){
+								noInterstStr += "("+(freeInterests[i].minamt/10000)+"만원↑)<br>";
+							}else{
+								noInterstStr += "("+(freeInterests[i].minamt/1000)+"천원↑)<br>";
+							}
+						}else{
+							noInterstStr += "<br>";
+						}
+					}
+					noInterstStr += "</p>";
+				}
+			}
+
+			installmentsInfo = "";
+			if(noInterstStr != ""){
+				installmentsInfo = noInterstStr;
+			}else{
+				return;
+			}
+			$$.getSingle("._detailNoInterstInfo").innerHTML = installmentsInfo;
+
+
+			var clickElement = $Element(we.element);
+
+			detailInfoDivisionElement.css({
+				left : (clickElement.offset().left+(clickElement.width()/2)-(detailInfoDivisionElement.width()/2))+"px",
+				top : (clickElement.offset().top+clickElement.height()) +"px"
+
+			});
+
+
+		}else{
+			$Element($$.getSingle("div ._noInstallmentInfo")).hide();
+		}
+	},
+	/**
+	 *
+	 * @param we
+	 */
+	viewEventInfo : function(we, isVisible, cardcode){
+		if(isVisible == "true"){
+			var detailInfoDivisionElement = $Element($$.getSingle("div ._noInstallmentInfo"));
+			$Element($$.getSingle("div ._noInstallmentInfo")).show();
+
+			var installmentsInfo=this._getOption("noInterestArr").$(cardcode);
+			var freeInterests = this._getOption("freeInterests")[cardcode];
+			var creditCardInfo = undefined;
+
+			if(nmp.front.order.order_sheet.getCreditCardInfos() != undefined){
+				creditCardInfo = nmp.front.order.order_sheet.getCreditCardInfos()[cardcode];
+			}
+			var noInterstStr = "";
+			if(creditCardInfo != undefined && creditCardInfo["eventinfo"] != undefined && creditCardInfo["eventinfo"].length > 0){
+				var eventInfos = creditCardInfo["eventinfo"];
+				for( var i = 0 ; i < eventInfos.length ; i++){
+					if(eventInfos[i]["eventtype"] == "CS"){
+						noInterstStr = "<p>";
+						if (eventInfos[i]["dcrate"] != undefined && $S(eventInfos[i]["dcrate"]).trim() != "") {
+							noInterstStr += eventInfos[i]["dcrate"] + " % 청구할인 ";
+						}
+						if(eventInfos[i]["orderdetaildesc"] != undefined && eventInfos[i]["orderdetaildesc"] != ""){
+							noInterstStr += "("+eventInfos[i]["orderdetaildesc"]+")";
+						}
+						noInterstStr += "</p>";
+						break;
+					}
+				}
+			}
+
+			installmentsInfo = "";
+			if(noInterstStr != ""){
+				installmentsInfo = noInterstStr;
+			}else{
+				return;
+			}
+			$$.getSingle("._detailNoInterstInfo").innerHTML = installmentsInfo;
+
+
+			var clickElement = $Element(we.element);
+
+			detailInfoDivisionElement.css({
+				left : (clickElement.offset().left+(clickElement.width()/2)-(detailInfoDivisionElement.width()/2))+"px",
+				top : (clickElement.offset().top+clickElement.height()) +"px"
+
+			});
+
+
+		}else{
+			$Element($$.getSingle("div ._noInstallmentInfo")).hide();
+		}
+	},
+	/**
+	 * 카드타입(개인/법인)에 따라 할부사용 여부 변경
+	 * @param we
+	 */
+	changeCardType : function(we){
+		var elTarget = we.element;
+		if (elTarget.tagName != "INPUT") {
+			elTarget = $Element(we.element.parentElement).query("input:checked");
+		}
+		var cardType = elTarget.value;
+		var oInstallmentCode = nmp.front.order.order_sheet.getInstallmentCodeSelectBox();
+		if(cardType == "PRIVATE"){
+			nmp.front.order.ui.toggleInstallmentComponent(oInstallmentCode, true);
+			
+			this.changeCompanyTypeCode(null);
+			nmp.front.order.order_sheet.checkPossibleInstallment();
+		}else if(cardType == "CORPORATION"){
+			nmp.front.order.ui.toggleInstallmentComponent(oInstallmentCode, false);
+
+			nmp.front.order.order_sheet.getCardBenefitInfo().query("em._eventInfoStr").innerHTML = "";
+			nmp.front.order.order_sheet.getCardBenefitInfo().query("em._noInstallmentMonthStr").innerHTML = "";
+
+			$Element(nmp.front.order.order_sheet.getCardBenefitInfo().query("em._eventInfoStr")).parent().hide();
+			$Element(nmp.front.order.order_sheet.getCardBenefitInfo().query("em._noInstallmentMonthStr")).parent().hide();
+
+			this.changeCompanyTypeCode(null);
+
+			nmp.front.order.order_sheet.toggleCompanyCardNotice(1);
+			nmp.front.order.order_sheet.notifyCardBenefitInfo();
+		}
+	},
+	/**
+	 * 카드사 선택시 정보 변경
+	 * 무이자 할부 전체 정보, 포인트 관련 정보 변경
+	 * @param we
+	 */
+	changeCompanyTypeCode : function(we, cardCorpCode){
+		if(we != undefined){
+			cardCorpCode = we.element.value;
+		}
+
+		if(cardCorpCode != undefined && nmp.front.order.order_sheet.getCardCodeList() != undefined){
+			nmp.front.order.order_sheet.getCardCodeList().setValue(cardCorpCode);
+		}
+
+		var cardType ="PRIVATE";
+		$A($$("input._cardtype")).forEach(function(v,i,a){
+			if(a[i].checked){
+				cardType = a[i].value;
+			}
+		});
+
+		if(this._getElementList("bcCardNotice") != undefined) {
+			this._getElementList("bcCardNotice").hide();
+		}
+		if (this._getElementList("unionPayNotice") != undefined) {
+			this._getElementList("unionPayNotice").hide();
+		}
+
+		var payMeansInfos = nmp.front.order.order_sheet.integration_cart._getOption("payMeansInfos");
+
+		if (we != null) {
+			cardCorpCode = we.element.value;
+		} else {
+			cardCorpCode = nmp.front.order.order_sheet.getCardCodeList().getValue();
+		}
+
+		if (cardCorpCode == "CR" && this._getElementList("unionPayNotice") != undefined) {
+			this._getElementList("unionPayNotice").show();
+		}
+
+		if(cardType == "PRIVATE"){
+			nmp.front.order.ui.toggleInstallmentComponent(nmp.front.order.order_sheet.getInstallmentCodeSelectBox(), true);
+
+			if(cardCorpCode != ""){
+				var creditCardInfo = undefined;
+
+				if(nmp.front.order.order_sheet.getCreditCardInfos() != undefined){
+					creditCardInfo = nmp.front.order.order_sheet.getCreditCardInfos()[cardCorpCode];
+				}
+
+				var freeInterests = this._getOption("freeInterests")[cardCorpCode];
+				var lastTotalPaymentPrice = nmp.front.order.order_sheet.getGeneralPayAmount();
+				var freeInterestsMonth = $A();
+				if(freeInterests != undefined){
+					var maxMonth = payMeansInfos["maxMonth"];
+					for(var i = 0; i < freeInterests.length;i++){
+						var month = "";
+						if(freeInterests[i].chrgtype == "03"){		// MP + 판매자가 최대적용가능 개월수 보다 작은 경우만 허용 한다.
+							if(maxMonth == -1 || freeInterests[i].month > maxMonth ){
+								continue;
+							}
+						}
+						if(parseInt(lastTotalPaymentPrice) <parseInt(freeInterests[i].minamt)){
+							continue;
+						}
+						month = freeInterests[i].month;
+						freeInterestsMonth.push(parseInt(month));
+					}
+					freeInterestsMonth.$value().sort(function(a,b){
+						return a-b;
+					});
+					freeInterestsMonth.unique();
+				}
+				
+				if (nmp.front.order.order_sheet.getCurrentCreditCardForm().query("._eventBannerArea") != undefined) {
+					$Element(nmp.front.order.order_sheet.getCurrentCreditCardForm().query("._eventBannerArea")).show();
+				}
+
+				if (cardCorpCode == "C1" && this._getElementList("bcCardNotice") != undefined) {
+					this._getElementList("bcCardNotice").show();
+				}
+			} else {
+				nmp.front.order.order_sheet.getCardBenefitInfo().query("em._eventInfoStr").innerHTML = "";
+				$Element(nmp.front.order.order_sheet.getCardBenefitInfo().query("em._eventInfoStr")).parent().hide();
+			}
+			var eventInfo = "";
+			if (creditCardInfo != undefined && creditCardInfo["eventinfo"] != undefined){
+				var eventInfos = creditCardInfo["eventinfo"];
+				for( var i = 0 ; i < eventInfos.length ; i++){
+					if(eventInfos[i]["eventtype"] == "CS"){
+						if (eventInfos[i]["dcrate"] != undefined && $S(eventInfos[i]["dcrate"]).trim() != "") {
+							eventInfo = "<em class='highlight'>" + eventInfos[i]["dcrate"] + "% 청구할인 " + "</em>";
+						}
+						if(eventInfos[i]["orderdetaildesc"] != undefined && eventInfos[i]["orderdetaildesc"] != ""){
+							eventInfo += "("+eventInfos[i]["orderdetaildesc"]+")";
+						}
+						if(eventInfos[i]["linkurl"] != undefined && eventInfos[i]["linkurl"] != ""){
+							var template = "<a href=\"{=linkurl}\" target=\"_blank\">{=eventInfo}</a>";
+							var obj = {
+								linkurl:eventInfos[i]["linkurl"],
+								eventInfo:eventInfo
+							};
+							eventInfo = $Template(template).process(obj);
+						}
+						break;
+					}
+				}
+			}
+
+			nmp.front.order.order_sheet.getCardBenefitInfo().query("em._eventInfoStr").innerHTML = eventInfo;
+			// 청구 할인 정보 ( 문화비 소득 공제 상품의 경우 미노출 )
+			if (eventInfo == "" || nmp.front.order.order_sheet.getOption("cultureBenefitYn") == "true") {
+				$Element(nmp.front.order.order_sheet.getCardBenefitInfo().query("em._eventInfoStr")).parent().hide();
+			} else {
+				$Element(nmp.front.order.order_sheet.getCardBenefitInfo().query("em._eventInfoStr")).parent().show();
+			}
+			nmp.front.order.order_sheet.notifyCardBenefitInfo();
+
+			this.changeInstallment(null);
+			this.changeInstallmentSelectBoxText();
+			nmp.front.order.order_sheet.checkPossibleInstallment();
+		}
+	},
+	/**
+	 * 할부 개월수 변경에 따른 무이자/일반 할부 텍스트 정보 변경
+	 * @param we
+	 */
+	changeInstallment : function(we){
+		var month = "";
+		if(we != null){
+			month = we.element.value;
+		}else{
+			var oInstallmentCode = nmp.front.order.order_sheet.getInstallmentCodeSelectBox();
+			if (nmp.front.order.ui.isElement(oInstallmentCode)) {
+				month = oInstallmentCode.attr("value");
+			} else {
+				month = oInstallmentCode.getValue();
+			}
+		}
+
+		month = parseInt(month,10);
+		var cardcode = nmp.front.order.order_sheet.getCardCodeList().getValue();
+		var interestStr = "";
+		var isBcCardFreeInstallment = false;
+		var freeInterestInstallmentType = $$.getSingle("._freeInterestInstallmentType");
+		// 무이자 최소 적용 금액
+		$$.getSingle("._freeInterestMiniminApplyAmount").value = "";
+		// 부분무이자부담월
+		$$.getSingle("._partFreeInterestBurdenMonths").value = "";
+		// 무이자 할부 부담 주체 구분 코드 01(PG)/02(MP)/03(MP+SELLER)
+		$$.getSingle("._freeInterestInstallmentBrdnCoreTypeCode").value = "";
+		// 무이자 할부 수수료 율
+		$$.getSingle("._freeInterestInstallmentSellerCommissionRate").value = "";
+		// 무이자 적용여부
+		$$.getSingle("._freeInterestInstallmentApplyYn").value = false;
+
+		var selectedCardProductCode = null;
+		var isEasyPay = nmp.front.order.order_sheet.getOption("easyCardCode").has(nmp.front.order.order_sheet.getPayMethod());
+		if (isEasyPay) {
+			selectedCardProductCode = nmp.front.order.order_sheet._getSelectedEasyCardProductCode();
+		}
+		if(month == "1"){
+			freeInterestInstallmentType.value = "NON_INSTALLMENT";
+		}else{
+			// 최소 결제 금액 이상인지의 여부를 검사를 위해
+			var lastTotalPaymentPrice = nmp.front.order.order_sheet.getGeneralPayAmount();
+
+			var cardFreeInterests = this._getOption("freeInterests")[cardcode];
+			var applyFreeInterest;
+			if(cardFreeInterests != undefined && cardFreeInterests.length > 0){
+				for(var i = 0 ; i < cardFreeInterests.length ; i++){
+					// 카드상품무이자인 경우 일반결제에서는 적용하지 않으며, 간편 카드결제에서는 선택카드와 cardProductCode 가 동일한 경우에만 적용
+					if (cardFreeInterests[i]["frinttype"] == "03") {
+						if (!isEasyPay) {
+							continue;
+						} else if (cardFreeInterests[i].cardproductcode != selectedCardProductCode) {
+							continue;
+						}
+					}
+					if(cardFreeInterests[i].month == month && parseInt(cardFreeInterests[i].minamt) <= parseInt(lastTotalPaymentPrice) ){
+						if(applyFreeInterest == undefined ){
+							applyFreeInterest = cardFreeInterests[i];
+						}else{
+							if(applyFreeInterest["frinttype"] == cardFreeInterests[i]["frinttype"]){			// 할부구분이 같은 경우
+								if(applyFreeInterest["chrgtype"] > cardFreeInterests[i]["chrgtype"]){		// 부담자값이 작은 경우
+									applyFreeInterest = cardFreeInterests[i];
+								}
+							}else{
+								if(applyFreeInterest["frinttype"] == "02" && (cardFreeInterests[i]["frinttype"] == "01" || cardFreeInterests[i]["frinttype"] == "03")){		// 할부 구분이 다른 경우
+									applyFreeInterest = cardFreeInterests[i];
+								}
+								// 판매자부담무이자와 카드상품무이자가 있다면 카드상품무이자 선택
+								// (2021.09.03) 주문 -> 빌링으로 어떤 것을 전달해도, 카드결제개발 측에서 선택한 것(카드상품무이자)으로 진행됨
+								else if (applyFreeInterest["frinttype"] == "01" && applyFreeInterest["chrgtype"] == "03" && cardFreeInterests[i]["frinttype"] == "03") {
+									applyFreeInterest = cardFreeInterests[i];
+								}
+							}
+						}
+					}
+				}
+			}
+			if(applyFreeInterest != undefined && parseInt(applyFreeInterest.minamt) <= parseInt(lastTotalPaymentPrice)){
+				if(applyFreeInterest["frinttype"] == "02"){
+					interestStr = "부분 무이자 할부 적용  ("+applyFreeInterest["partmos"]+"회차 수수료 고객 부담)";
+				}
+
+				// 비씨카드 무이자 여부 세팅
+				isBcCardFreeInstallment = cardcode == "C1";
+
+				// 무이자 최소 적용 금액
+				$$.getSingle("._freeInterestMiniminApplyAmount").value = applyFreeInterest.minamt;
+				// 부분무이자부담월
+				$$.getSingle("._partFreeInterestBurdenMonths").value = applyFreeInterest.partmos;
+				// 무이자 할부 부담 주체 구분 코드 01(PG)/02(MP)/03(MP+SELLER)
+				$$.getSingle("._freeInterestInstallmentApplyYn").value = true;
+				$$.getSingle("._freeInterestInstallmentBrdnCoreTypeCode").value = applyFreeInterest.chrgtype;
+				// 무이자 할부 수수료 율
+				$$.getSingle("._freeInterestInstallmentSellerCommissionRate").value = applyFreeInterest.chrgpct != 0 ? 0+applyFreeInterest.chrgpct : 0;
+
+				if(applyFreeInterest.chrgtype == "03"){
+					freeInterestInstallmentType.value = "PRODUCT_FREE_INSTALLMENT";
+				}else{
+					freeInterestInstallmentType.value = "GENERAL_FREE_INSTALLMENT";
+				}
+			}else{
+				freeInterestInstallmentType.value = "INSTALLMENT";
+			}
+		}
+
+		if (interestStr == "") {
+			$Element(nmp.front.order.order_sheet.getCardBenefitInfo().query("em._noInstallmentMonthStr")).parent().hide();
+		} else {
+			$Element(nmp.front.order.order_sheet.getCardBenefitInfo().query("em._noInstallmentMonthStr")).parent().show();
+		}
+
+		this.toggleBcCardFreeInstallmentDisableTooltip(null, isBcCardFreeInstallment);
+
+		nmp.front.order.order_sheet.getCardBenefitInfo().query("em._noInstallmentMonthStr").innerHTML = interestStr;
+		nmp.front.order.order_sheet.toggleCompanyCardNotice(month);
+		nmp.front.order.order_sheet.notifyCardBenefitInfo();
+
+		var welInstallmentSelectBox = nmp.front.order.order_sheet.getInstallmentCodeSelectBox();
+		if (nmp.front.order.ui.isElement(welInstallmentSelectBox)) {
+			var elInstallmentSelectBox = welInstallmentSelectBox.$value();
+			welInstallmentSelectBox.parent().query("._installmentText").innerHTML = elInstallmentSelectBox.options[elInstallmentSelectBox.selectedIndex].text;
+		}
+	},
+	changeInstallmentSelectBoxText : function() {
+		var sbFreeInstallment = nmp.front.order.order_sheet.getInstallmentCodeSelectBox();
+		var sCardcode = nmp.front.order.order_sheet.getCardCodeList().getValue();
+		var aCardFreeInterests = this._getOption("freeInterests")[sCardcode];
+		var lastTotalPaymentPrice = nmp.front.order.order_sheet.getGeneralPayAmount();
+		var longFreeInstallments = ["18","24","36"];
+
+		if (nmp.front.order.ui.isElement(sbFreeInstallment)) { /* 카드간편결제 */
+
+			var aInstallmentOptions = $A();
+			for (var i = 0; i < sbFreeInstallment.$value().options.length; i++) {
+				aInstallmentOptions.push(sbFreeInstallment.$value().options[i]);
+			}
+
+			//할부개월 Option 태그 초기화
+			aInstallmentOptions.forEach(function(elFreeInstallment) {
+				if (elFreeInstallment.value != "01") {
+					elFreeInstallment.innerHTML = parseInt(elFreeInstallment.value) + "개월 ";
+				}
+
+				// 장기무이자 option 태그 제거(초기화)
+				if($A(longFreeInstallments).has(elFreeInstallment.value)){
+					sbFreeInstallment.$value().removeChild(elFreeInstallment);
+				}
+			});
+
+			if (aCardFreeInterests == undefined) {
+				return;
+			}
+
+			var selectedCardProductCode = nmp.front.order.order_sheet._getSelectedEasyCardProductCode();
+			var isLongTermInstallment = nmp.front.order.order_sheet._getSelectedEasyCardIsLongTermInstallment();
+			var longFreeInterests = {};
+			var generalPayLongInstallments = {};
+			//할부개월 Option 태그 무이자/부분무이자 값세팅
+			aCardFreeInterests.forEach(function (htFreeInterests) {
+				// 카드상품무이자라면, 카드 간편결제의 경우, htFreeInstallment.cardproductcode 가 롯데 PLCC 면서 선택한 cardProductCode 와 같을 때 동작 수행
+				if (htFreeInterests["frinttype"] == "03") {
+					if ((htFreeInterests.cardproductcode != selectedCardProductCode) || !isLongTermInstallment) {
+						return;
+					}
+				}
+
+				$A(aInstallmentOptions).forEach(function (elFreeInstallment) {
+					if ((parseInt(lastTotalPaymentPrice) >= htFreeInterests.minamt) && (elFreeInstallment.value == ("0" + htFreeInterests.month).slice(-2))) {
+						elFreeInstallment.innerHTML = parseInt(elFreeInstallment.value) + "개월 " + ((htFreeInterests["frinttype"] == "02") ? "부분" : "") + " 무이자";
+					}
+				});
+
+				//조건 만족시, 장기무이자건(무이자 or 부분무이자) 정보 저장
+				if((parseInt(lastTotalPaymentPrice) >= htFreeInterests.minamt) && $A(longFreeInstallments).has(("0" + htFreeInterests.month).slice(-2))){
+					longFreeInterests[htFreeInterests.month] = htFreeInterests;
+				}
+			});
+			//장기무이자건(무이자 or 부분무이자) Option 태그 추가
+			for (var i = 0; i < longFreeInstallments.length; ++i) {
+				var longMonth = longFreeInstallments[i];
+				var longFreeInterest = undefined;
+				if (longMonth in longFreeInterests) {
+					longFreeInterest = longFreeInterests[longMonth];
+				} else if (longMonth in generalPayLongInstallments) {
+					longFreeInterest = generalPayLongInstallments[longMonth];
+				} else {
+					continue;
+				}
+				var optionEl = document.createElement("OPTION");
+				optionEl.value = longFreeInterest.month;
+				optionEl.innerHTML = parseInt(longFreeInterest.month) + "개월 " + ((longFreeInterest["frinttype"] == "02") ? "부분" : "") + " 무이자";
+				sbFreeInstallment.$value().appendChild(optionEl);
+			}
+
+		} else { /* 일제반결제(신용카드) */
+
+			//할부개월 Option 태그 초기화
+			$A(sbFreeInstallment.getOptions()).forEach(function (elFreeInstallment) {
+				if (isNaN(parseInt(elFreeInstallment.value))) {
+					elFreeInstallment.innerHTML = "";
+				} else if (elFreeInstallment.value != "01") {
+					elFreeInstallment.innerHTML = parseInt(elFreeInstallment.value) + "개월";
+				}
+
+				// 장기무이자 option 태그 제거(초기화)
+				if($A(longFreeInstallments).has(elFreeInstallment.value)){
+					sbFreeInstallment.getSelectElement().removeChild(elFreeInstallment);
+				}
+			});
+
+			//할부개월 Option 태그 무이자/부분무이자 값세팅
+			var longFreeInterests = {};
+			var generalPayLongInstallments = {};
+			$A(aCardFreeInterests).forEach(function (htFreeInterests) {
+				// TODO: 카드상품무이자라면, 일반결제의 경우, 최소금액 여부만 체크
+				if (htFreeInterests["frinttype"] == "03") {
+					if (parseInt(lastTotalPaymentPrice) >= htFreeInterests.minamt) {
+						generalPayLongInstallments[htFreeInterests.month] = htFreeInterests;
+					}
+					return;
+				}
+
+				$A(sbFreeInstallment.getOptions()).forEach(function (elFreeInstallment) {
+					if ((parseInt(lastTotalPaymentPrice) >= htFreeInterests.minamt) && (elFreeInstallment.value == ("0" + htFreeInterests.month).slice(-2))) {
+						elFreeInstallment.innerHTML = parseInt(elFreeInstallment.value) + "개월 " + ((htFreeInterests["frinttype"] == "02") ? "부분" : "") + " 무이자";
+					}
+				});
+
+				//조건 만족시, 장기무이자건(무이자 or 부분무이자) 정보 저장
+				if((parseInt(lastTotalPaymentPrice) >= htFreeInterests.minamt) && $A(longFreeInstallments).has(("0" + htFreeInterests.month).slice(-2))){
+					longFreeInterests[htFreeInterests.month] = htFreeInterests;
+				}
+			}, this);
+
+			//장기무이자건(무이자 or 부분무이자) Option 태그 추가
+			//일반결제의 경우, 카드상품무이자 정보의 최소금액 이상일 땐 유이자로 노출
+			for (var i = 0; i < longFreeInstallments.length; ++i) {
+				var longMonth = longFreeInstallments[i];
+				var longFreeInterest = undefined;
+				if (longMonth in longFreeInterests) {
+					longFreeInterest = longFreeInterests[longMonth];
+				} else if (longMonth in generalPayLongInstallments) {
+					longFreeInterest = generalPayLongInstallments[longMonth];
+				} else {
+					continue;
+				}
+				var optionEl = document.createElement("OPTION");
+				optionEl.value = longFreeInterest.month;
+				optionEl.innerHTML = parseInt(longFreeInterest.month) + "개월 " + ((longFreeInterest["frinttype"] == "02") ? "부분" : "") + (longFreeInterest["frinttype"] != "03" ? " 무이자" : "");
+				sbFreeInstallment.getSelectElement().appendChild(optionEl);
+			}
+			sbFreeInstallment.paint();
+		}
+	},
+	/**
+	 * 카드 간편결제에서 보이는 카드 이미지 위에, 롯데 PLCC 카드 대상으로 장기무이자할부 안내 뱃지 노출
+	 */
+	changeLongFreeInterestBadge : function() {
+		if (!nmp.front.order.order_sheet.getOption("easyCardCode").has(nmp.front.order.order_sheet.getPayMethod())) {
+			return;
+		}
+
+		var allFreeInterests = this._getOption("freeInterests");
+		if (allFreeInterests == undefined) {
+			return;
+		}
+		var nlastTotalPaymentPrice = nmp.front.order.order_sheet.getGeneralPayAmount();
+		var welFlickArea = this._getElement("easyPayCardFlickArea");
+
+		$A(welFlickArea.queryAll("._longFreeInterestBadge")).forEach(function (v) {
+			$Element(v).hide();
+			var cardCorpCode = $Element(v).attr("data-code");
+			var cardProductCode = $Element(v).attr("data-card-product-code");
+			var isLongTermInstallment = $Element(v).attr("data-is-long-term-installment") == 'true';
+			var aCardFreeInterests = allFreeInterests[cardCorpCode];
+			if (aCardFreeInterests == undefined) {
+				return;
+			}
+			for (var i = 0; i < aCardFreeInterests.length; ++i) {
+				var htFreeInterests = aCardFreeInterests[i];
+				if (htFreeInterests["frinttype"] != "03") {
+					continue;
+				} else if (isLongTermInstallment && (htFreeInterests.cardproductcode == cardProductCode) && (parseInt(nlastTotalPaymentPrice) >= htFreeInterests.minamt)) {
+					$Element(v).show();
+					break;
+				}
+			}
+		});
+	},
+	/**
+	 * BC 카드(마크없는경우) 무이자 불가능 툴팁 노출/미노출
+	 */
+	toggleBcCardFreeInstallmentDisableTooltip: function (htEvent, isToShow) {
+		var welBcCardFreeInstallmentDisableTooltip = this._getElement("bcCardFreeInstallmentDisableTooltip");
+		if(!welBcCardFreeInstallmentDisableTooltip) {
+			return;
+		}
+
+		isToShow == true ? welBcCardFreeInstallmentDisableTooltip.show() : welBcCardFreeInstallmentDisableTooltip.hide();
+	},
+	/**
+	 * 해외직배송 상품의 경우 고유 식별 정보 수집 및 제공 도의 체크 여부 확인
+	 * @param we
+	 * @returns {Boolean}
+	 */
+	checkSocialAgree : function(we){
+		return true;
+	},
+	getMobileProvisionPopupSizeArray : function(){
+		var options = ["height=320px","width=292px"];
+
+		$A($$("input._payMeansClass")).forEach(function(v,i,a){
+			if(a[i].checked){
+				payMethod = a[i].value;
+			}
+		});
+		var payMeansInfos = this._getOption("payMeansInfos");
+		var pgid = payMeansInfos[payMethod];
+		if(pgid == "05002" || pgid == "05003"){
+			options = ["height=600px","width=450px"];
+		}
+		return options;
+	},
+	getPinPayInfo : function(){
+		var pinPayInfo = {};
+		var payMeansInfos = this._getOption("payMeansInfos");
+		pinPayInfo["cinf"] = payMeansInfos["MOBILE_PIN_cinf"];
+		pinPayInfo["provisionUrl"] = payMeansInfos["MOBILE_PIN_prvsnurl"];
+
+		return pinPayInfo;
+	},
+	getMobilePayPopup : function(){
+		return this._htInstance["mobilePopup"];
+	},
+	moveNextCardBanner : function() {
+		if (oCircularRolling != undefined && oCircularRolling != null) {
+			oCircularRolling.moveBy(1);
+		}
+	},
+	movePrevCardBanner : function() {
+		if (oCircularRolling != undefined && oCircularRolling != null) {
+			oCircularRolling.moveBy(-1);
+		}
+	},
+	getPostApprovalIframe : function() {
+		return $$.getSingle("#ansimPasswordIframe").innerHTML;
+	},
+	initializeGeneralCreditCard : function() {
+		var payMeansInfos = this._getOption("payMeansInfos");
+		bill.init(payMeansInfos['CREDIT_CARD']);
+	},
+	initializeGeneralBank : function() {
+		var payMeansInfos = this._getOption("payMeansInfos");
+		bill.init(payMeansInfos['BANK']);
+	},
+
+
+	/**
+	 * pin번호 관련 팝업 페이지를 연다.
+	 * @param we
+	 * @param action
+	 */
+	openPasswordManagePopup : function(we, action){
+
+		var params = this.settingPinPayParams(params);
+
+		var payPopup = nmp.openPopup("about:blank", ["width=555", "height=448"], "passwordManage");
+		this._htInstance["mobilePopup"] = payPopup;
+
+		if (action == "PASS_LOST") {
+			var mobileNo = params["cellphoneNumber"];
+
+			var amt = $$.getSingle("._totalPayAmount").value;
+			if(isNaN(amt)){
+				amt = amt.replace(/[,]/g,"");
+				amt = parseInt(amt);
+			}
+			$Form($("commonForm")).value('AMT',amt);
+
+			var orderProducts = nmp.front.order.order_sheet.getOrderSnapshot().orderProducts;
+			if(orderProducts.length == 1){
+				$Form($("commonForm")).value('TITLE',orderProducts[0].name);
+			}else{
+				$Form($("commonForm")).value('TITLE',orderProducts[0].name+"외"+(orderProducts.length-1)+"건");
+			}
+
+			this.approvalMobile(mobileNo, nmp.front.order.order_sheet._getOption("isPinPayMember"), "passwordManage", true);
+
+		} else {
+			var sUrl = "/orderSheetPopup/pinPay/"+action;
+			payPopup.document.location.href = sUrl + "?" + $H(params).toQueryString();
+		}
+	},
+    resizeBannerWidth: function () {
+        var divBannerBox = this._getElement("bannerBox");
+        var bannerList = divBannerBox.child();
+        var width= 5000;
+
+        if(bannerList != undefined && bannerList.length  > 0){
+            width = 260 * oCircularRolling.getItems().length;
+        }
+
+        divBannerBox.attr("style", "width:"+width+"px"); //처리할곳!
+    },
+	"" : ""
+});

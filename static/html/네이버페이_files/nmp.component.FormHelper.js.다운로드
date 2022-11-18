@@ -1,0 +1,1171 @@
+/**
+ * @fileOverview FormHelper Component
+ * @author EC전시서비스개발팀 윤흥기
+ */
+nmp.component.FormHelper = jindo.$Class(/** @lends nmp.component.FormHelper.prototype */{
+    /**
+     * $Form() 객체를 저장할 변수
+     * @type {$Form}
+     */
+    _wfmTarget : null,
+
+    /**
+     * 폼의 요청 방법을 저장하는 변수
+     * @type {String}
+     */
+    _sRequestMethod : "get",
+
+    /**
+     * 인스턴스 저장용 객체
+     * @type {HashTable}
+     */
+    _htInstance : {},
+
+    /**
+     * 폼 데이터를 전송할 URL
+     * @type {String}
+     */
+    _sActionUrl : "",
+
+    /**
+     * 폼 데이터를 비교할 원본 데이터를 저장할 객체
+     * @type {HashTable}
+     */
+    _htOriginalFormData : {},
+
+    /**
+     * 이벤트 핸들러 저장 객체
+     * @type {HashTable}
+     */
+    _htEventHandler : {},
+
+	/**
+	 * @class FormHelper
+	 * @constructs
+	 * @version 0.5
+	 * @param {HashTable} htOption 초기화 옵션 객체
+	 * @example
+	 */
+    $init : function(htOption){
+    	this._htInstance = {};
+
+        // 기본 옵션을 설정한다.
+        this.option({
+            "bAjaxRequest" : true,
+            "sAction" : "",
+            "bValidationOnly" : false,
+            "sUnloadCheckMessage" : "",
+            "fUnloadCheckCallback" : null,
+            "bUseEnterKeySubmit" : false,
+            "bNotUseErrorAlert" : false
+        });
+
+        // 초기화 옵션을 설정한다.
+        this.option(htOption);
+
+        this._wfmTarget = jindo.$Form(this._getElement("root", true));
+        this._sActionUrl = this.option("sAction") || this._wfmTarget.$value().action;
+        this._sRequestMethod = (this._getElement("root").attr("method") || this._sRequestMethod).toLowerCase();
+        this._htInstance["form_checker"] = new nmp.component.FormHelperCheck(this._getElement("root"));
+        this.updateOriginalFormData();
+
+        if(this.option("sUnloadCheckMessage")){
+        	this.enableUnloadCheck(this.option("sUnloadCheckMessage"));
+        }
+
+        if(!this.option("bUseEnterKeySubmit")){
+        	this.disableEnterKeySubmit();
+        }
+
+        // 이벤트 핸들러를 등록한다.
+        this._attachEvent();
+    },
+
+    /**
+     * 이벤트 핸들러를 등록
+     */
+    _attachEvent : function(){
+        this._attachEventHandler(this._wfmTarget, "submit", jindo.$Fn(this._onSubmit, this).bind());
+        this._attachEventHandler(this._wfmTarget, "reset", jindo.$Fn(this._onReset, this).bind());
+    },
+
+    /**
+     * 페이지를 벗어나기 전에 호출되는 이벤트 핸들러
+     *
+     * @param {$Event} weBeforeUnload BeforeUnload 이벤트 객체
+     * @returns {String} 사용자에게 보여줄 메시지
+     */
+    _onBeforeUnload : function(weBeforeUnload){
+    	if(this.isFormDataChanged() || (this.option("fUnloadCheckCallback") && this.option("fUnloadCheckCallback")())){
+    		weBeforeUnload.$value().returnValue = this.option("sUnloadCheckMessage");
+        	return this.option("sUnloadCheckMessage");
+    	}
+    },
+
+    /**
+     * 스프링의 필드마커 기능의 사용을 위해 폼데이터의 체크박스의 값을 검사하고 설정함
+     *
+     * @param {HashTable} htParameter 서버로 전송될 파라미터 객체
+     * @returns {HashTable} 스프링 필드마커를 위한 값이 설정된 파라미터 객체
+     */
+    _setSpringFieldMarker : function(htParameter){
+        var aResult = [], sSelector = "";
+        var aList = this.getFormElementList();
+        var aNameList = [];
+        for(var i = 0; i < aList.length; i++){
+            if(aList[i].type == "checkbox" && !aList[i].disabled && aList[i].name){
+                aNameList.push(aList[i].name);
+            }
+        }
+
+        aNameList = jindo.$A(aNameList).unique().$value();
+        for(i = 0; i < aNameList.length; i++){
+            aResult = this.getValue(aNameList[i]);
+            sSelector = "input[type=hidden][name=_" + aNameList[i] + "][value=on]";
+            if(!aResult){
+                if(this.option("bValidationOnly") && !this._getElement("root").query(sSelector)){
+                    jindo.$Element("<input type='hidden' name='_" + aNameList[i] + "' value='on' />").appendTo(this._getElement("root"));
+                }
+                htParameter["_" + aNameList[i]] = "on";
+            }else{
+                if(htParameter["_" + aNameList[i]]){
+                    if(this.option("bValidationOnly") && this._getElement("root").query(sSelector)){
+                        jindo.$Element(this._getElement("root").query(sSelector)).leave();
+                    }
+                    delete htParameter["_" + aNameList[i]];
+                }
+            }
+        }
+
+        return htParameter;
+    },
+
+    /**
+     * 폼의 서브밋이 될 때, 호출되는 이벤트 핸들러
+     *
+     * @param {$Event} [weSubmit] 폼 서브밋 이벤트 객체
+     */
+    _onSubmit : function(weSubmit){
+        // TODO DefaultText 체크 필요
+        this._htInstance["form_checker"].changeDefaultTextForSubmit(true);
+
+        var htParameter = this.getFormData();
+        // 파일 업로드 용으로 사용하지 않을 경우에만 $Ajax를 이용하여 처리하도록 분리한다.
+        // 중첩된 폼은 불가능하기 때문에, 파일 업로드용 폼과 기존 데이터 전송용 폼을 함께 사용하기 위함임
+        var bResult = false;
+        if(this.option("bAjaxRequest")){
+            if(weSubmit){
+                weSubmit.stop();
+            }
+
+            if(!this._sActionUrl){
+                nmp.alertMessage("MSG0008");
+            }
+
+            var wfCallback;
+            if(this.option("bValidationOnly")){
+                htParameter["_validationOnly"] = true;
+                wfCallback = jindo.$Fn(this._onValidation, this).bind();
+                bResult = this.fireEvent("beforeValidation", {"htParameter" : htParameter});
+            }else{
+                wfCallback = jindo.$Fn(this._onLoad, this).bind();
+                bResult = this.fireEvent("beforeSubmit", {"htParameter" : htParameter});
+            }
+
+            if(bResult){
+                nmp.requestAjax(this._sActionUrl, htParameter, {
+                    "onload" : wfCallback,
+                    "method" : this._sRequestMethod,
+                    "bNotUseErrorAlert" : this.option("bNotUseErrorAlert")
+                });
+            }
+        }else{
+            bResult = this.fireEvent("beforeSubmit", {"htParameter" : htParameter});
+            if(bResult){
+            	this.disableUnloadCheck();
+                this._getElement("root").attr("action", this._sActionUrl);
+                this._applyRequestMethodToForm();
+                this._applyParameterToForm(htParameter);
+            }else{
+                weSubmit.stop();
+            }
+        }
+    },
+
+    /**
+     * 폼 전송 방법값을 폼에 적용한다.
+     */
+    _applyRequestMethodToForm : function(){
+        var elInput;
+        if(this._sRequestMethod == "put" || this._sRequestMethod == "delete"){
+            elInput = jindo.$("<input type='hidden' name='_method' value='" + this._sRequestMethod + "' />");
+            this._getElement("root").append(elInput);
+            this._getElement("root").attr("method", "post");
+        }
+    },
+
+    /**
+     * htParameter의 값을 폼에 적용한다.
+     * - 키에 해당하는 엘리먼트가 없는 경우, hidden 타입으로 엘리먼트를 생성하여 추가한다.
+     *
+     * @param htParameter
+     */
+    _applyParameterToForm : function(htParameter){
+        for(var x in htParameter){
+            if(this.getFormElement(x)){
+                if(this.getFormElement(x).type != "file"){
+                    this.setValue(x, htParameter[x], true);
+                }
+            }else{
+                jindo.$Element("<input type='hidden' name='" + x + "' value='" + htParameter[x] + "' >").appendTo(this._getElement("root"));
+            }
+        }
+    },
+
+    /**
+     * Ajax를 이용한 밸리데이션이 완료되었을 때, 호출되는 콜백함수
+     *
+     * @param {HashTable} htResult Ajax 응답 결과 객체
+     */
+    _onValidation : function(htResult, oResponse){
+        if(htResult.bSuccess){
+            var htParameter = jindo.$S(this._wfmTarget.serialize()).parseString();
+            var bResult = this.fireEvent("beforeSubmit", {"htParameter" : htParameter, "oResponse" : oResponse});
+            if(bResult){
+            	this.disableUnloadCheck();
+                this._applyRequestMethodToForm();
+                this._applyParameterToForm(htParameter);
+                this._wfmTarget.submit();
+            }
+        }else{
+            this._onFailValidation(htResult, oResponse);
+            this._htInstance["form_checker"].changeDefaultTextForSubmit(false);
+        }
+    },
+
+    /**
+     * Ajax를 이용한 폼 서브밋이 완료되었을 때, 호출되는 콜백함수
+     *
+     * @param {HashTable} htResult Ajax 응답 결과 객체
+     */
+    _onLoad : function(htResult, oResponse){
+        if(htResult && htResult.bSuccess){
+            this._onSuccessValidation(htResult, oResponse);
+        }else{
+            this._onFailValidation(htResult, oResponse);
+            this._htInstance["form_checker"].changeDefaultTextForSubmit(false);
+        }
+    },
+
+    /**
+     * Ajax를 이용한 폼 서브밋이 성공했을 때의 처리를 위한 함수
+     *
+     * @param {HashTable} htResult Ajax 응답 결과 객체
+     */
+    _onSuccessValidation : function(htResult, oResponse){
+        var bResult = this.fireEvent("success", {"htResult" : htResult, "oResponse" : oResponse});
+        if(bResult && htResult.htReturnValue){
+        	this.disableUnloadCheck();
+
+            if(htResult.htReturnValue.message){
+                alert(htResult.htReturnValue.message);
+            }
+
+            if(htResult.htReturnValue.redirectPage){
+                location.href = htResult.htReturnValue.redirectPage;
+            }
+        }
+    },
+
+    /**
+     * Ajax를 이용한 폼 서브밋이 실패했을 때의 처리를 위한 함수
+     *
+     * @param {HashTable} htResult Ajax 응답 결과 객체
+     */
+    _onFailValidation : function(htResult, oResponse){
+        var bResult = this.fireEvent("fail", {"htResult" : htResult, "oResponse" : oResponse});
+        if(bResult && htResult.htReturnValue && htResult.sErrorCode == "INVALID_FORM_DATA" && htResult.htReturnValue && htResult.htReturnValue.invalidItemList){
+            // TODO 피드백 처리 방법은 추후, 수정 예정
+            alert(htResult.htReturnValue.invalidItemList[0]["message"]);
+        }
+    },
+
+    /**
+     * 폼을 리셋시킨다.
+     */
+    reset : function(){
+        this._wfmTarget.reset();
+    },
+
+    /**
+     * 리셋 이벤트 핸들러
+     * - 폼이 리셋되는 경우, 컴포넌트 레벨에서 리셋 이벤트를 발생시킨다.
+     */
+    _onReset : function(){
+        this.fireEvent("reset");
+    },
+
+    /**
+     * 폼을 서브밋한다.
+     */
+    submit : function(){
+        if(this.option("bAjaxRequest")){
+            this._onSubmit();
+        }else{
+            this._wfmTarget.submit();
+        }
+    },
+
+    /**
+     * sFieldName 이름을 갖는 폼 엘리먼트의 값을 vValue로 설정한다.
+     *
+     * @param {String} sFieldName 값을 설정할 폼 엘리먼트의 이름
+     * @param {Variant} [vValue] 설정할 값
+     */
+    setValue : function(sFieldName, vValue, bSkipChangeEvent){
+        if(sFieldName && typeof(sFieldName) == "string"){
+            this._wfmTarget.value(sFieldName, vValue);
+            if(!bSkipChangeEvent){
+            	this._htInstance["form_checker"].executeChangeEvent(sFieldName);
+            }
+        }
+    },
+
+    /**
+     * sFieldName 이름을 갖는 폼 엘리먼트의 값을 리턴한다.
+     *
+     * @param {String} sFieldName 값을 얻어올 폼 엘리먼트의 이름
+     * @return {Variant} 폼 엘리먼트의 값
+     */
+    getValue : function(sFieldName){
+        if(sFieldName){
+            return this._wfmTarget.value(sFieldName);
+        }
+    },
+
+    /**
+     * 데이터 객체에 들어있는 값들을 폼에 설정한다.
+     * - 데이터 객체의 키값들은 폼의 이름들과 같아야 하며, 데이터 객체의 값이 폼의 값으로 설정된다.
+     * - 폼의 일부 데이터만을 설정할 수도 있으며, 키값에 해당하는 폼이 없는 경우에는 에러가 발생한다.
+     *
+     * @param {HashTable} htData 설정할 데이터 객체
+     */
+    setFormData : function(htData){
+    	for(var x in htData){
+    		this.setValue(x, htData[x]);
+    	}
+    },
+
+    /**
+     * 현재 폼의 데이터를 리턴한다.
+     *
+     * @param {Boolean} bJson JSON 문자열로의 출력 여부
+     * @returns {HashTable} || {String}
+     */
+    getFormData : function(bJson){
+		var htFormData = {};
+		var aElementList = this.getFormElementList();
+		for(var i=0, sInputName="", vValue; i<aElementList.length; i++){
+			sInputName = aElementList[i].name;
+			try{
+				vValue = this.getValue(sInputName)
+			}catch(e){
+				vValue = undefined;
+				console.log(sInputName+"를 form에서 못찾았습니다."); // 주석처리하지 말것
+			}
+			if(sInputName && !aElementList[i].disabled && typeof(vValue) != "undefined"){
+				htFormData[sInputName] = vValue;
+			}
+		}
+
+        var htParameter = this._setSpringFieldMarker(htFormData);
+        return bJson ? jindo.$Json(htParameter).toString() : htParameter;
+    },
+
+    /**
+     * 현재의 폼 데이터를 데이터 변경 체크를 위한 원본 데이터로 설정한다.
+     */
+    updateOriginalFormData : function(){
+    	this._htOriginalFormData = this.getFormData();
+    },
+
+    /**
+     * 원본 폼 데이터에 대한 마크 후, 폼 데이터의 변경 여부를 리턴한다.
+     *
+     * @returns {Boolean} 폼 데이터의 변경 여부
+     */
+    isFormDataChanged : function(){
+    	return !jindo.$Json(this._htOriginalFormData).compare(this.getFormData());
+    },
+
+    /**
+     * sFieldName 이름을 갖는 인풋 엘리먼트를 리턴한다.
+     *
+     * @param {String} sFieldName 리턴할 인풋 엘리먼트의 이름
+     * @return {HTMLElement} 인풋 엘리먼트
+     */
+    getFormElement : function(sFieldName){
+        return this._wfmTarget.element(sFieldName);
+    },
+
+    /**
+     * 폼의 전체 인풋 엘리먼트들의 목록을 리턴한다.
+     *
+     * @return {Array} 전체 인풋 엘리먼트 배열
+     */
+    getFormElementList : function(){
+        return this._wfmTarget.element();
+    },
+
+    /**
+     * 폼 전송을 할 URL을 변경한다.
+     *
+     * @param {String} sUrl 폼 전송을 할 URL
+     */
+    setActionUrl : function(sUrl){
+        if(sUrl){
+            this._sActionUrl = sUrl;
+        }
+    },
+
+    /**
+     * 폼 전송을 할 URL을 리턴한다.
+     *
+     * @returns {String} 폼 전송 URL
+     */
+    getActionUrl : function(){
+    	return this._sActionUrl;
+    },
+
+    /**
+     * 폼 전송 방법을 변경한다.
+     *
+     * @param {String} sMethod 폼 전송 방법
+     */
+    setRequestMethod : function(sMethod){
+        if(sMethod){
+            this._sRequestMethod = sMethod.toLowerCase();
+        }
+    },
+
+    /**
+     * 폼의 요청 방법을 리턴한다.
+     *
+     * @returns {String} 요청 방법
+     */
+    getRequestMethod : function(){
+    	return this._sRequestMethod;
+    },
+
+    /**
+     * 현재의 페이지를 벗어날 때, 폼의 데이터가 변경된 경우 확인 창을 띄우도록 함
+     *
+     * @param {String} sMessage 사용자에게 보여줄 메시지
+     * @param {Function) fCallback 폼 외부의 데이터 변경 여부를 체크할 콜백함수
+     */
+    enableUnloadCheck : function(sMessage, fCallback){
+   		this.option("sUnloadCheckMessage", sMessage);
+   		this.option("fUnloadCheckCallback", fCallback);
+    	this._htEventHandler["beforeunload"] = this._attachEventHandler(window, "beforeunload", jindo.$Fn(this._onBeforeUnload, this).bind());
+    },
+
+    /**
+     * 현재의 페이지를 벗어날 때, 확인 창을 띄우지 않도록 함
+     */
+    disableUnloadCheck : function(){
+    	if(this._htEventHandler["beforeunload"]){
+    		this._detachEventHandler(this._htEventHandler["beforeunload"]);
+    	}
+    },
+
+    /**
+     * 엔터키를 통한 폼서브밋을 사용할 수 있도록 설정한다.
+     */
+    enableEnterKeySubmit : function(){
+    	if(this._htEventHandler["keydown"]){
+    		this._detachEventHandler(this._htEventHandler["keydow"]);
+    	}
+    },
+
+    /**
+     * 엔터키를 통한 폼서브밋을 사용할 수 없도록 설정한다.
+     */
+    disableEnterKeySubmit : function(){
+    	this._htEventHandler["keydown"] = this._attachEventHandler(this._getElement("root"), "keydown", jindo.$Fn(function(weKeyDown){
+    		if(weKeyDown.key().enter && jindo.$A(["input", "select", "button"]).has(weKeyDown.element.tagName.toLowerCase())){
+    			weKeyDown.stopDefault();
+    		}
+    	}, this).bind());
+    },
+
+    enableAjaxRequest : function(){
+        this.option("bAjaxRequest", true);
+    },
+
+    disableAjaxRequest : function(){
+        this.option("bAjaxRequest", false);
+    },
+
+    setLengthIndicator : function(aList){
+        this._htInstance["form_checker"].setLengthIndicator(aList);
+    },
+
+    refreshLengthIndicator : function(sElementName){
+        this._htInstance["form_checker"].refreshLengthIndicator(sElementName);
+    },
+
+    setTypeCheck : function(aList){
+        this._htInstance["form_checker"].setTypeCheck(aList);
+    },
+
+    setAutoFocus : function(aList){
+        this._htInstance["form_checker"].setAutoFocus(aList);
+    },
+
+    setDefaultText : function(aList){
+        this._htInstance["form_checker"].setDefaultText(aList);
+    },
+
+    setHighlight : function(aList){
+        this._htInstance["form_checker"].setHighlight(aList);
+    },
+
+    setEventHandler : function(aList){
+        this._htInstance["form_checker"].setEventHandler(aList);
+    }
+}).extend(nmp.component.Base);
+
+
+nmp.component.FormHelperCheck = jindo.$Class({
+    _wfmTarget : null,                //ok
+    _htWatchInput : null,            //ok
+    _htWatchInputElement : null,    //ok
+    _htDataForTypeCheck : null,        //ok
+    _htDataForAutoFocus : null,        //ok
+    _htDataForLengthIndicator : null,//ok
+    _htDataForDefaultText : null,    //ok
+    _htDataForHighlight  : null,    //ok
+    _htDataForEventHandler  : null,    //ok
+    _bNotUseWatchInput : null,
+    _aElementForAutoFocus : null,
+
+    $init : function(welTarget){
+        this._wfmTarget = jindo.$Form(jindo.$Element(welTarget).$value());
+        this._htWatchInput = {};
+        this._htWatchInputElement = {};
+        this._htDataForTypeCheck = {};
+        this._htDataForAutoFocus = {};
+        this._htDataForLengthIndicator = {};
+        this._htDataForDefaultText = {};
+        this._htDataForHighlight = {};
+        this._htDataForEventHandler = {};
+        this._bNotUseWatchInput = false;
+        this._aElementForAutoFocus = [];
+    },
+
+    _createWatchInput : function(sElementName, elTarget){
+        if(!this._htWatchInput[sElementName] || (this._htWatchInput[sElementName] && this._htWatchInputElement[sElementName] != elTarget)){
+            this._htWatchInputElement[sElementName] = elTarget;
+            this._htWatchInput[sElementName] = new jindo.WatchInput(elTarget, {
+                'nInterval' : 10,
+                'bUseTimerOnIE' : true,
+                'sKeyEvent' : "keyup",
+                'bPermanent' : false,
+                'bActivateOnload' :true
+            }).attach({
+                "focus": jindo.$Fn(this._onFocus, this).bind(sElementName),
+                "blur": jindo.$Fn(this._onBlur, this).bind(sElementName),
+                "change": jindo.$Fn(this._onChange, this).bind(sElementName)
+            });
+        }
+        return this._htWatchInput[sElementName];
+    },
+
+    _onFocus : function(sElementName, weFocus){
+        if(this._bNotUseWatchInput){
+            return false;
+        }
+
+        if(this._htDataForDefaultText[sElementName]){
+            this._focusForDefaultText(sElementName);
+        }
+        if(this._htDataForHighlight[sElementName]){
+            this._focusForHighlight(sElementName);
+        }
+        if(this._htDataForLengthIndicator[sElementName]){
+            this._focusForLengthIndicator(sElementName);
+        }
+        if(this._htDataForEventHandler[sElementName]){
+            this._focusForEventHandler(sElementName);
+        }
+    },
+
+    _onBlur : function(sElementName, weBlur){
+        if(this._bNotUseWatchInput){
+            return false;
+        }
+
+        if(this._htDataForDefaultText[sElementName]){
+            this._blurForDefaultText(sElementName);
+        }
+        if(this._htDataForHighlight[sElementName]){
+            this._blurForHighlight(sElementName);
+        }
+        if(this._htDataForLengthIndicator[sElementName]){
+            this._blurForLengthIndicator(sElementName);
+        }
+        if(this._htDataForEventHandler[sElementName]){
+            this._blurForEventHandler(sElementName);
+        }
+    },
+
+    _onChange : function(sElementName, weChange, bSkipGuideLayer){
+        if(this._bNotUseWatchInput){
+            return false;
+        }
+
+        if(this._htDataForAutoFocus[sElementName]){
+            this._changeForAutoFocus(sElementName);
+        }
+        if(this._htDataForTypeCheck[sElementName]){
+            this._changeForTypeCheck(sElementName, bSkipGuideLayer);
+        }
+        if(this._htDataForLengthIndicator[sElementName]){
+            this._changeForLengthIndicator(sElementName, bSkipGuideLayer);
+        }
+        if(this._htDataForEventHandler[sElementName]){
+            this._changeForEventHandler(sElementName);
+        }
+    },
+
+    executeChangeEvent : function(sElementName){
+    	if(sElementName){
+    		var vElement = this._wfmTarget.element(sElementName);
+    		var aList = vElement.tagName ? [vElement] : vElement;
+
+    		for(var i=0; i<aList.length; i++){
+    			this._onChange(sElementName + "_" + i, null, true);
+    		}
+    	}
+    },
+
+    _changeText : function(sElementName, sInputText){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        this._bNotUseWatchInput = true;
+        elInput.beforeValue = elInput.value;
+        elInput.blur();
+        this._htWatchInput[sElementName].setInputValue(sInputText);
+        elInput.focus();
+        jindo.$Fn(function(){
+        	this._bNotUseWatchInput = false;
+        	elInput.beforeValue = sInputText;
+        }, this).delay(0);
+    },
+
+    _alertNotExistName : function(sElementName){
+        nmp.alertMessage("MSG0013", [sElementName]);
+    },
+
+    _isCheckElement : function(elTarget){
+        var bReturnValue = false;
+        if(elTarget.tagName == "TEXTAREA" || (elTarget.tagName == "INPUT" && (elTarget.type == "text" || elTarget.type == "password"))){
+            bReturnValue = true;
+        }
+        return bReturnValue;
+    },
+
+    //------------TypeCheck-------------//
+    setTypeCheck : function(aList){
+        var sElementName = null;
+        for(var i = 0; i < aList.length; i++){
+            var vElement = this._wfmTarget.element(aList[i].sName);
+            if(vElement){
+                if(!vElement[0]){
+                    vElement = [vElement];
+                }
+                for(var j = 0; j < vElement.length; j++){
+                    if(this._isCheckElement(vElement[j])){
+                        sElementName = vElement[j].name + "_" + j;
+                        this._createWatchInput(sElementName, vElement[j]);
+                        this._htDataForTypeCheck[sElementName] = {
+                            "sCheckValue" : aList[i].rxPattern,
+                            "elLayer" : aList[i].elLayer
+                        };
+                    }
+                }
+            }else{
+                this._alertNotExistName(aList[i].sName);
+            }
+        }
+    },
+
+    _changeForTypeCheck : function(sElementName, bSkipGuideLayer){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        var sOldInputText = elInput.value;
+        var rxValue = this._htDataForTypeCheck[sElementName].sCheckValue;
+        var aMatch = sOldInputText.match(rxValue);
+        var sInputText = (aMatch) ? aMatch.join("") : "";
+        if(sOldInputText != sInputText){
+            this._changeText(sElementName, sInputText);
+            if(!bSkipGuideLayer){
+            	this._showGuideLayerForTypeCheck(sElementName);
+            }
+        }else{
+        	this._hideGuideLayerForTypeCheck(sElementName);
+        }
+    },
+
+    _showGuideLayerForTypeCheck : function(sElementName){
+    	if(this._htDataForTypeCheck[sElementName] && this._htDataForTypeCheck[sElementName].elLayer){
+    		nmp.showLayer(this._htDataForTypeCheck[sElementName].elLayer, this._htWatchInput[sElementName].getInput(), {
+    			"sPosition" : "outside-bottom", "sAlign" : "center", "nTop" : 3
+    		});
+    	}
+    },
+
+    _hideGuideLayerForTypeCheck : function(sElementName){
+    	if(this._htDataForTypeCheck[sElementName] && this._htDataForTypeCheck[sElementName].elLayer && jindo.$Element(this._htDataForTypeCheck[sElementName].elLayer).visible()){
+    		nmp.hideLayer();
+    	}
+    },
+    //------------TypeCheck-------------//
+
+    //------------AutoFocus-------------//
+    setAutoFocus : function(aList){
+        var nArrayIndex = this._aElementForAutoFocus.length;
+        var aElement = [];
+        var sElementName = null;
+        for(var i = 0; i < aList.length; i++){
+            var vElement = this._wfmTarget.element(aList[i].sName);
+            if(vElement){
+                if(vElement.tagName){
+                    vElement = [vElement];
+                }
+                for(var j = 0; j < vElement.length; j++){
+                    if(vElement[j].tagName == "SELECT"){
+                        this._attachEventHandler(vElement[j], "change", jindo.$Fn(this._onChangeAF, this).bind(nArrayIndex));
+                    }else{
+                        if(this._isCheckElement(vElement[j])){
+                            this._attachEventHandler(vElement[j], "keyup", jindo.$Fn(this._onKeyUpAF, this).bind(nArrayIndex));
+                            sElementName = vElement[j].name + "_" + j;
+                            this._createWatchInput(sElementName, vElement[j]);
+                            this._htDataForAutoFocus[sElementName] = {
+                                'nLength':aList[i].nLength,
+                                'nIndex': nArrayIndex
+                            };
+                            aElement.push(vElement[j]);
+                        }
+                    }
+                }
+            }else{
+                this._alertNotExistName(aList[i].sName);
+            }
+        }
+        this._aElementForAutoFocus.push(aElement);
+    },
+
+    _changeForAutoFocus : function(sElementName){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        var sInputText = elInput.value;
+        var nLimit = this._htDataForAutoFocus[sElementName].nLength;
+
+        if(sInputText.length == nLimit){
+            var nArrayIndex = this._htDataForAutoFocus[sElementName].nIndex;
+            this._setElementFocus(elInput, nArrayIndex, true);
+        }
+    },
+
+    _onChangeAF : function(nArrayIndex, weChange){
+        var elSelect = weChange.element;
+        if(elSelect.value){
+            this._setElementFocus(elSelect, nArrayIndex, true);
+        }
+    },
+
+    _onKeyUpAF : function(nArrayIndex, weKeyDown){
+        var nKeyCode = weKeyDown.key().keyCode;
+        var elKeyDown = weKeyDown.element;
+        if(elKeyDown.value.length === 0 && nKeyCode == 8){
+            this._setElementFocus(elKeyDown, nArrayIndex, false);
+        }
+    },
+
+    _setElementFocus : function(elFocused, nArrayIndex, bNext){
+        var elFocus = (bNext) ? this._getNextFormElement(elFocused) : this._getPreviousFormElement(elFocused);
+
+        if(jindo.$A(this._aElementForAutoFocus[nArrayIndex]).has(elFocus)){
+            elFocus.focus();
+        }
+    },
+
+    _getPreviousFormElement : function(elTarget){
+        var aList = this._wfmTarget.element();
+        var elReturnValue = null;
+        for(var i = 1; i < aList.length; i++){
+            if(aList[i] == elTarget){
+                elReturnValue = aList[i - 1];
+            }
+        }
+        return elReturnValue;
+    },
+
+    _getNextFormElement : function(elTarget){
+        var aList = this._wfmTarget.element();
+        var elReturnValue = null;
+        for(var i = 1; i < aList.length; i++){
+            if(aList[i - 1] == elTarget){
+                elReturnValue = aList[i];
+                break;
+            }
+        }
+        return elReturnValue;
+    },
+    //------------AutoFocus-------------//
+
+    //------------DefaultText-------------//
+    setDefaultText : function(aList){
+        var sElementName = null;
+        for(var i = 0; i < aList.length; i++){
+            var vElement = this._wfmTarget.element(aList[i].sName);
+            if(vElement){
+                if(!vElement[0]){
+                    vElement = [vElement];
+                }
+                for(var j = 0; j < vElement.length; j++){
+                    if(this._isCheckElement(vElement[j])){
+                        sElementName = vElement[j].name + "_" + j;
+                        if(!this._htDataForDefaultText[sElementName]){
+                        	this._createWatchInput(sElementName, vElement[j]);
+                        }
+                        this._htDataForDefaultText[sElementName] = {
+                                "sDefaultValue" : aList[i].sDefaultValue,
+                                "bForce" : aList[i].bForce
+                            };
+                        if(vElement[j].value == "" || aList[i].bForce){
+                            vElement[j].value = aList[i].sDefaultValue;
+                            this._htWatchInput[sElementName].fireChangeEvent();
+                        }
+                    }
+                }
+            }else{
+                this._alertNotExistName(aList[i].sName);
+            }
+        }
+    },
+
+    _focusForDefaultText : function(sElementName){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        var sInputText = elInput.value;
+        if(sInputText == this._htDataForDefaultText[sElementName].sDefaultValue){
+            this._htWatchInput[sElementName].setInputValue("");
+        }
+    },
+
+    _blurForDefaultText : function(sElementName){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        var sInputText = elInput.value;
+        if(jindo.$S(sInputText).trim().$value() == ""){
+            this._htWatchInput[sElementName].setInputValue(this._htDataForDefaultText[sElementName].sDefaultValue);
+        }
+    },
+
+    changeDefaultTextForSubmit : function(bBefore){
+        var sElementName = null;
+        if(bBefore){
+            for(sElementName in this._htDataForDefaultText){
+                if(!this._htDataForDefaultText[sElementName].bForce && this._htWatchInput[sElementName].getInput().value == this._htDataForDefaultText[sElementName].sDefaultValue){
+                    this._htWatchInput[sElementName].setInputValue("");
+                }
+            }
+        }else{
+            for(sElementName in this._htDataForDefaultText){
+                if(this._htWatchInput[sElementName].getInput().value == ""){
+                    this._htWatchInput[sElementName].setInputValue(this._htDataForDefaultText[sElementName].sDefaultValue);
+                }
+            }
+        }
+
+    },
+    //------------DefaultText-------------//
+
+    //------------Highlight-------------//
+    setHighlight : function(aList){
+        if(typeof aList == "string"){
+            this._setHighlightAll(aList);
+        }else{
+            this._setHighlightArray(aList);
+        }
+    },
+
+    _setHighlightAll : function(sClass){
+        var sElementName = null;
+        var aElements = this._wfmTarget.element();
+        for(var i = 0; i < aElements.length; i++){
+            if(!aElements[i].readOnly && (aElements[i].tagName == "TEXTAREA" || (aElements[i].tagName == "INPUT" && (aElements[i].type == "text" || aElements[i].type == "password")))){
+                var vElement = this._wfmTarget.element(aElements[i].name);
+                if(vElement){
+                    if(!vElement[0]){
+                        vElement = [vElement];
+                    }
+                    for(var j = 0; j < vElement.length; j++){
+                        if(this._isCheckElement(vElement[j])){
+                            sElementName = vElement[j].name + "_" + j;
+                            this._createWatchInput(sElementName, vElement[j]);
+                            this._htDataForHighlight[sElementName] = {
+                                'sClass' : sClass
+                            };
+                        }
+                    }
+                }else{
+//					this._alertNotExistName(aElements[i].tagName);
+                }
+            }
+        }
+    },
+
+    _setHighlightArray : function(aList){
+        var sElementName = null;
+        for(var i = 0; i < aList.length; i++){
+            var vElement = this._wfmTarget.element(aList[i].sName);
+            if(vElement){
+                if(!vElement[0]){
+                    vElement = [vElement];
+                }
+                for(var j = 0; j < vElement.length; j++){
+                    if(this._isCheckElement(vElement[j])){
+                        sElementName = vElement[j].name + "_" + j;
+                        this._createWatchInput(sElementName, vElement[j]);
+                        this._htDataForHighlight[sElementName] = {
+                            'sClass':aList[i].sClass
+                        };
+                    }
+                }
+            }else{
+                this._alertNotExistName(aList[i].sName);
+            }
+        }
+    },
+
+    _focusForHighlight : function(sElementName){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        jindo.$Element(elInput).addClass(this._htDataForHighlight[sElementName].sClass);
+    },
+
+    _blurForHighlight : function(sElementName){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        jindo.$Element(elInput).removeClass(this._htDataForHighlight[sElementName].sClass);
+    },
+    //------------Highlight-------------//
+
+    //------------LengthIndicator-------------//
+    setLengthIndicator : function(aList){
+        var sElementName = null;
+        var elForm = jindo.$Element(this._wfmTarget.$value());
+
+        for(var i = 0; i < aList.length; i++){
+            var vElement = this._wfmTarget.element(aList[i].sName);
+
+            if(vElement){
+                if(!vElement[0]){
+                    vElement = [vElement];
+                }
+                for(var j = 0; j < vElement.length; j++){
+                    if(this._isCheckElement(vElement[j])){
+                        sElementName = vElement[j].name + "_" + j;
+                        this._createWatchInput(sElementName, vElement[j]);
+                        this._htDataForLengthIndicator[sElementName] = {
+                            'nMaxLength' : aList[i].nMaxLength,
+                            'sType': (aList[i].sType && aList[i].sType == "byte") ? "byte" : "char",
+                            'sCharset' : aList[i].sCharset || "utf-8",
+                            'elRealLength':(aList[i].elRealLength) ? jindo.$Element(aList[i].elRealLength) : jindo.$Element(elForm.query('._' + aList[i].sName + '_real_length')),
+                            'elMaxLength':(aList[i].elMaxLength) ? jindo.$Element(aList[i].elMaxLength) : jindo.$Element(elForm.query('._' + aList[i].sName + '_max_length')),
+                            'elLayer' : aList[i].elLayer,
+                            'fCallback' : aList[i].fCallback
+                        };
+                        this._showLength(sElementName);
+                    }
+                }
+            }else{
+                this._alertNotExistName(aList[i].sName);
+            }
+        }
+    },
+
+    refreshLengthIndicator : function(sElementName){
+        if(sElementName){
+            var vElement = this._wfmTarget.element(sElementName);
+
+            if(vElement){
+                if(!vElement[0]){
+                    vElement = [vElement];
+                }
+                for(var j = 0; j < vElement.length; j++){
+                    this._showLength(vElement[j].name + "_" + j);
+                }
+            }
+        }
+    },
+
+    _showLength : function (sElementName, bSkipGuideLayer){
+        var elInput = this._htWatchInput[sElementName].getInput();
+        var sInputText = "", sOldInputText = elInput.value;
+        var nMaxLength = this._htDataForLengthIndicator[sElementName].nMaxLength;
+        var nRealLength = 0, nBeforeLength = 0;
+
+        switch (this._htDataForLengthIndicator[sElementName].sType){
+            case "byte":
+                sInputText = jindo.$S(elInput.value).bytes({"charset" : this._htDataForLengthIndicator[sElementName].sCharset, "size" : nMaxLength}).$value();
+                nRealLength = jindo.$S(sInputText).bytes({"charset" : this._htDataForLengthIndicator[sElementName].sCharset});
+                nBeforeLength = jindo.$S(sOldInputText).bytes({"charset" : this._htDataForLengthIndicator[sElementName].sCharset});
+                break;
+            case "char":
+                sInputText = elInput.value.substr(0, nMaxLength);
+                nRealLength = sInputText.length;
+                nBeforeLength = sOldInputText.length;
+                break;
+        }
+
+        if(sOldInputText != sInputText){
+            this._changeText(sElementName, sInputText);
+        }
+
+        if(nBeforeLength > nMaxLength && !bSkipGuideLayer){
+            if(this._htDataForLengthIndicator[sElementName].fCallback){
+                this._htDataForLengthIndicator[sElementName].fCallback();
+            }
+        	this._showGuideLayerForLengthIndicator(sElementName);
+        }else{
+        	this._hideGuideLayerForLengthIndicator(sElementName);
+        }
+
+        if(this._htDataForLengthIndicator[sElementName].elRealLength){
+            this._htDataForLengthIndicator[sElementName].elRealLength.html(this._htDataForDefaultText[sElementName] && sInputText == this._htDataForDefaultText[sElementName].sDefaultValue ? 0 : nRealLength);
+        }
+
+        if(this._htDataForLengthIndicator[sElementName].elMaxLength){
+            this._htDataForLengthIndicator[sElementName].elMaxLength.html(nMaxLength);
+        }
+    },
+
+    _changeForLengthIndicator : function(sElementName, bSkipGuideLayer){
+        this._showLength(sElementName, bSkipGuideLayer);
+    },
+
+    _focusForLengthIndicator : function(sElementName){
+    	this._htDataForLengthIndicator[sElementName].bFocused = true;
+    	this._showLength(sElementName);
+    },
+
+    _blurForLengthIndicator : function(sElementName){
+    	this._showLength(sElementName);
+        this._hideGuideLayerForLengthIndicator(sElementName);
+    },
+
+    _showGuideLayerForLengthIndicator : function(sElementName){
+    	if(this._htDataForLengthIndicator[sElementName].bFocused && this._htDataForLengthIndicator[sElementName] && this._htDataForLengthIndicator[sElementName].elLayer){
+    		var welLayer = jindo.$Element(this._htDataForLengthIndicator[sElementName].elLayer);
+    		var welKoreanLength = jindo.$Element(welLayer.query("._korean_length"));
+    		var welEnglishLength = jindo.$Element(welLayer.query("._english_length"));
+    		if(welKoreanLength && welEnglishLength){
+    			welKoreanLength.html(parseInt(this._htDataForLengthIndicator[sElementName].nMaxLength / (this._htDataForLengthIndicator[sElementName].sCharset == "utf-8" ? 3 : 2)), 10);
+    			welEnglishLength.html(this._htDataForLengthIndicator[sElementName].nMaxLength);
+    		}
+    		nmp.showLayer(this._htDataForLengthIndicator[sElementName].elLayer, this._htWatchInput[sElementName].getInput(), {
+    			"sPosition" : "outside-bottom", "sAlign" : "center", "nTop" : 3
+    		});
+    	}
+    },
+
+    _hideGuideLayerForLengthIndicator : function(sElementName){
+    	if(this._htDataForLengthIndicator[sElementName] && this._htDataForLengthIndicator[sElementName].elLayer && jindo.$Element(this._htDataForLengthIndicator[sElementName].elLayer).visible()){
+    		nmp.hideLayer();
+    	}
+    },
+    //------------LengthIndicator-------------//
+
+    //------------EventHandler-------------//
+    setEventHandler : function(aList){
+        var vOldValue = null;
+        var sElementName = null;
+        for(var i = 0; i < aList.length; i++){
+            var vElement = this._wfmTarget.element(aList[i].sName);
+            if(vElement){
+                if(!vElement[0]){
+                    vElement = [vElement];
+                }
+                for(var j = 0; j < vElement.length; j++){
+                    if(this._isCheckElement(vElement[j])){
+                        sElementName = vElement[j].name + "_" + j;
+                        this._createWatchInput(sElementName, vElement[j]);
+                        vOldValue = vElement[j].value;
+                        this._htDataForEventHandler[sElementName] = {
+                            'change':(aList[i].htEvent.change) ? {'fCallback':aList[i].htEvent.change} : null,
+                            'blur':(aList[i].htEvent.blur) ? {'fCallback':aList[i].htEvent.blur} : null,
+                            'focus':(aList[i].htEvent.focus) ? {'fCallback':aList[i].htEvent.focus} : null,
+                            'sEventName':aList[i].sEventName,
+                            'vOldValue' : vOldValue
+                        };
+                    }
+                }
+            }else{
+                this._alertNotExistName(aList[i].sName);
+            }
+        }
+    },
+
+    _changeForEventHandler : function(sElementName){
+        if(this._htDataForEventHandler[sElementName].change){
+            var sOldInputText = this._htDataForEventHandler[sElementName].vOldValue;
+            var elInput = this._htWatchInput[sElementName].getInput();
+            var sText = elInput.value;
+            if(sOldInputText != sText){
+                var htParam = {
+                    'elInput' : elInput,
+                    'sText' : sText,
+                    'sOldText' : sOldInputText
+                };
+                this._htDataForEventHandler[sElementName].vOldValue = sText;
+                this._htDataForEventHandler[sElementName]["change"].fCallback(htParam);
+            }
+        }
+    },
+
+    _blurForEventHandler : function(sElementName){
+        if(this._htDataForEventHandler[sElementName].blur){
+            var elInput = this._htWatchInput[sElementName].getInput();
+            var sText = elInput.value;
+            var htParam = {
+                'elInput' : elInput,
+                'sText' : sText
+            };
+            this._htDataForEventHandler[sElementName].vOldValue = sText;
+            this._htDataForEventHandler[sElementName]["blur"].fCallback(htParam);
+        }
+    },
+
+    _focusForEventHandler : function(sElementName){
+        if(this._htDataForEventHandler[sElementName].focus){
+            var elInput = this._htWatchInput[sElementName].getInput();
+            var sText = elInput.value;
+            var htParam = {
+                'elInput' : elInput,
+                'sText' : sText
+            };
+            this._htDataForEventHandler[sElementName].vOldValue = sText;
+            this._htDataForEventHandler[sElementName]["focus"].fCallback(htParam);
+        }
+    },
+    //------------EventHandler-------------//
+    destroy : function(){
+        this._wfmTarget = null;		//ok
+        this._htWatchInput = null;			//ok
+        this._htDataForTypeCheck = null;		//ok
+        this._htDataForAutoFocus = null;		//ok
+        this._htDataForLengthIndicator = null;//ok
+        this._htDataForDefaultText = null;	//ok
+        this._htDataForHighlight = null;	//ok
+        this._htDataForEventHandler = null;	//ok
+        this._bNotUseWatchInput = null;
+        this._aElementForAutoFocus = null;
+    }
+}).extend(nmp.component.Base);

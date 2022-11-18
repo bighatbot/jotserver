@@ -1,0 +1,222 @@
+/**
+ * 카테고리 목록을 처리하는 컴포넌트.
+ * 내부적으로 카테고리 정보를 가지고 있어서 카테고리 정보가 있으면 Ajax통신 없이 처리한다.
+ * @name nmp.component.CategorySelectorBase
+ * @class
+ * @author jkland
+ * @version 0.2
+ * @example
+ */
+nmp.component.CategorySelectorBase = $Class({
+
+	/**
+	 * 카테고리 정보
+	 * @type {HashTable}
+	 */
+	_htCategoryData : null,
+	
+	/**
+	 * 부모와 자식 카테고리 간의 관계 정보
+	 * @type {HashTable}
+	 */	
+	_htCategoryLink : null,	
+
+	/**
+	 * Ajax 호출시 컴포넌트를 구분하기 위한 값. 컴포넌트를 동시에 여려개 쓰는 경우 같은 Ajax요청이 각 컴포넌트에서 날라가서 요청을 Ajax에서 차단시킨다.
+	 * 차단되지 않도록 요청에 사용하는 더미 값이다.
+	 * @type {HashTable}
+	 */	
+	_sComponentID :null,
+	/**
+	 * 초기화 함수
+	 * 
+	 * @constructor
+	 * @param {HashTable} htOption 초기화 옵션 객체(sActionURL:Ajax API)
+	 */
+	$init : function(htOption){
+		this._sComponentID = String(parseInt(Math.random()*10000000000, 10));
+		this._htCategoryData = {};
+		this._htCategoryLink = {};
+		this.option({
+			"sActionURL" : "",
+			"sRootId" :"root"
+		});		
+		// 초기화 옵션을 설정한다.
+		this.option(htOption);
+	},
+	
+	/**
+	 * 컴포넌트 소멸자 함수
+	 */
+	destroy : function(){
+		this._htCategoryData = null;
+		this._htCategoryLink = null;
+	},
+	
+	/**
+	 * 전달 받은 카테고리 data를 내부적으로 정리하는 함수
+	 * 
+	 * @param {Array} aCategoryData 카테고리 data
+	 */	
+	setCategories : function(aCategoryData){
+		for(var i=0,nLen = aCategoryData.length; i<nLen; i++){
+			if(!this._htCategoryData[aCategoryData[i].id]){	//로컬에 없는 경우 
+				this._htCategoryData[aCategoryData[i].id] = {
+					'sId' : aCategoryData[i].id,
+					'sParentId' : (aCategoryData[i].parentId)?aCategoryData[i].parentId:this.option("sRootId"),	//parent가 없는 경우는 대분류이며 임시로 root를 parent로 정한다.
+					'sFullName' : aCategoryData[i].wholeCategoryName,
+					'sMgrFullName' : aCategoryData[i].wholeMgrCategoryName,
+					'nLevel' : parseInt(aCategoryData[i].level,10),
+					'nOrder' : parseInt(aCategoryData[i].sortOrder,10),
+					'sName' : aCategoryData[i].name,
+					'sFullId' : aCategoryData[i].wholeCategoryId,
+					'bLastLevel' : (aCategoryData[i].lastLevel==true||aCategoryData[i].lastLevel=="true")?true:false,
+					'bHasChild' : (aCategoryData[i].hasChild==true||aCategoryData[i].hasChild=="true")?true:false,
+					"isValid" : (aCategoryData[i].isValid==true||aCategoryData[i].isValid=="true")?true:false, //유효성여부
+					"sDisplayValidStr" : aCategoryData[i].displayValidStr
+				};
+			}
+			// parent 카테고리와 연결
+			if(!this._htCategoryLink[this._htCategoryData[aCategoryData[i].id].sParentId]){	
+				this._htCategoryLink[this._htCategoryData[aCategoryData[i].id].sParentId] = {};	
+			}
+			this._htCategoryLink[this._htCategoryData[aCategoryData[i].id].sParentId][aCategoryData[i].id] = true;
+		}
+	},
+
+    setCategoriesForSelectorPopup : function(aCategoryData){
+         for(var i=0,nLen = aCategoryData.length; i<nLen; i++){
+             if(!this._htCategoryData[aCategoryData[i].standardCategoryId]){	//로컬에 없는 경우
+                 this._htCategoryData[aCategoryData[i].standardCategoryId] = {
+                     'sId' : aCategoryData[i].standardCategoryId,
+                     'sParentId' : (aCategoryData[i].parentStandardCategoryId)?aCategoryData[i].parentStandardCategoryId:this.option("sRootId"),	//parent가 없는 경우는 대분류이며 임시로 root를 parent로 정한다.
+                     'sFullName' : aCategoryData[i].wholeStandardCategoryName,
+                     'sMgrFullName' : "",
+                     'nLevel' : parseInt(aCategoryData[i].level,10),
+                     'nOrder' : parseInt(aCategoryData[i].sortOrder,10),
+                     'sName' : aCategoryData[i].shopCategoryName,
+                     'sFullId' : aCategoryData[i].wholeStandardCategoryId,
+                     'bLastLevel' : (aCategoryData[i]["subShopCategories"] && aCategoryData[i]["subShopCategories"].length)?false:true,
+                     'bHasChild' : (aCategoryData[i]["subShopCategories"] && aCategoryData[i]["subShopCategories"].length)?true:false,
+                     "isValid" : (aCategoryData[i].shopCategoryExposureYn==true||aCategoryData[i].shopCategoryExposureYn=="true")?true:false, //유효성여부
+                     "sDisplayValidStr" : ""//aCategoryData[i].displayValidStr
+                 };
+             }
+             // parent 카테고리와 연결
+             if(!this._htCategoryLink[this._htCategoryData[aCategoryData[i].standardCategoryId].sParentId]){
+                 this._htCategoryLink[this._htCategoryData[aCategoryData[i].standardCategoryId].sParentId] = {};
+             }
+             this._htCategoryLink[this._htCategoryData[aCategoryData[i].standardCategoryId].sParentId][aCategoryData[i].standardCategoryId] = true;
+
+             if(aCategoryData[i]["subShopCategories"] && aCategoryData[i]["subShopCategories"].length){
+                 this.setCategoriesForSelectorPopup(aCategoryData[i]["subShopCategories"]);
+             }
+         }
+     },
+
+	/**
+	 * 전달 받은 카테고리 ID의 자식 카테고리를 구하는 함수
+	 * 자식 카테고리가 없는 경우 자식카테고리 값을 null로 반환한다.
+	 * 로컬에 있는 경우 로컬 data를 반환하고 없는경우 Ajax를 통해 가져온다.
+	 * Ajax때문에 바로 return을 쓸 수 없고 fire event로 "getChildCategories"를 발생시켜 처리한다.
+	 * @param {String} sCategoryID 카테고리 ID
+	 */	
+	getChildCategories : function(sCategoryID){
+		if(this._htCategoryData[sCategoryID]&&!this._htCategoryData[sCategoryID].bHasChild){
+			this._getLastChildCategory(sCategoryID);
+		}else{
+			this._getChildCategories(sCategoryID);
+		}
+	},
+	
+	/**
+	 * 카테고리가 말단 노드인 경우 처리하는 함수
+	 * 하위 카테고리 정보를 null로 처리하여 fireEvent("getChildCategories")를 발생시킨다.
+	 * @param {String} sCategoryID 카테고리 ID
+	 */	
+	_getLastChildCategory : function(sCategoryID){
+		var htCategoryInfo = this.getCategoryInfo(sCategoryID);
+		var htResult = {
+			"bSuccess":true,
+			"htCategory":htCategoryInfo,
+			"aChildCategories" : null
+		};
+		this.fireEvent("getChildCategories", {"htResult":htResult});		
+	},
+	
+	/**
+	 * 전달 받은 카테고리 ID의 자식 카테고리를 구하는 함수
+	 * 로컬에 있는 경우 로컬 data를 반환하고 없는경우 Ajax를 통해 가져온다.
+	 * Ajax때문에 바로 return을 쓸 수 없고 fire event로 "getChildCategories"를 발생시켜 처리한다.
+	 * @param {String} sCategoryID 카테고리 ID
+	 */	
+	_getChildCategories : function(sCategoryID){
+		if(this._htCategoryLink[sCategoryID]){//로컬에 있는 경우.
+			this._getLocalChildCategories(sCategoryID);
+		}else{	//ajax로 카테고리 data를 가져온다.
+			var sActionURL  = this.option("sActionURL").replace("{=CAT_ID}",sCategoryID);	// 카테고리 ID 하위를 가져오기 위해 URL replace			
+			nmp.requestAjax(sActionURL, {'sComponentID':this._sComponentID}, {
+				onload : $Fn(this._doneAjaxSave,this).bind(sCategoryID),
+				method : "get",
+				bNotUseErrorAlert :true
+			});		
+		}		
+	},
+
+	/**
+	 * 카테고리를 Ajax로 처리하여 반환하는 함수
+	 * fire event로 "getChildCategories"를 발생시켜 처리한다.
+	 * @param {String} sCategoryID 카테고리 ID
+	 * @param {HashTable} oResult Ajax 응답 결과
+	 */	
+	_doneAjaxSave : function(sCategoryID,oResult){
+		if(oResult.bSuccess){	// 응답 성공
+			this.setCategories(oResult.htReturnValue);
+			this._getLocalChildCategories(sCategoryID);
+		}else{	//응답 실패
+			var htCategoryInfo = this.getCategoryInfo(sCategoryID);
+			var htResult = {
+				"bSuccess" : false,
+				"htCategory" : htCategoryInfo,
+				"sErrorCode" : oResult.sErrorCode,
+				"sErrorMessage":oResult.sErrorMessage
+			};			
+			this.fireEvent("getChildCategories",{"htResult":htResult});
+		}
+	},
+		
+	/**
+	 * 카테고리를 로컬정보로만 처리하여 반환하는 함수
+	 * fire event로 "getChildCategories"를 발생시켜 처리한다.
+	 * 하위 카테고리를 정렬하여 반환시킨다.
+	 * @param {String} sCategoryID 카테고리 ID
+	 */	
+	_getLocalChildCategories : function (sCategoryID){
+		var aCategories = [];
+
+		for(var x in this._htCategoryLink[sCategoryID]){
+			aCategories.push(this._htCategoryData[x]);
+		}
+		var aReturnCategories = nmp.utility.sortArray(aCategories,"asc","nOrder");	// 카테고리를 nOrder순으로 정렬		
+		var htCategoryInfo = this.getCategoryInfo(sCategoryID);
+		var htResult = {
+			"bSuccess":true,
+			"htCategory":htCategoryInfo,
+			"aChildCategories" : aReturnCategories
+		};
+		this.fireEvent("getChildCategories", {"htResult":htResult});
+	},
+
+	/**
+	 * 해당 카테고리를 정보를 반환하는 함수
+	 * @param {String} sCategoryID 카테고리 ID
+	 * @return {HashTable} 카테고리 정보
+	 */		
+	getCategoryInfo : function(sCategoryID){		
+		var htReturnValue = null;
+		if(this._htCategoryData[sCategoryID]){
+			htReturnValue = nmp.utility.cloningObject(this._htCategoryData[sCategoryID]);
+		}
+		return htReturnValue;
+	}
+}).extend(nmp.component.Base);

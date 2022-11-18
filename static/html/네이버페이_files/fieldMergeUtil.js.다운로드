@@ -1,0 +1,74 @@
+nmp.createModule("nmp.front.order.fieldMergeUtil", {
+	initialize : function(){
+	},
+	_appendHiddenElement : function(eForm, parameterName) {
+		var wForm = $Form(eForm);
+		var hiddenElement = wForm.element(parameterName);
+		if ( hiddenElement == null ) {
+			var weHiddenElement = $Element("<input type='hidden' name='" + parameterName + "' >");
+			weHiddenElement.appendTo(wForm.$value());
+			hiddenElement = weHiddenElement.$value();
+		}
+		return hiddenElement;
+	},
+	_mergeValuesIntoElement : function(eForm, parameterName, count, sDelimiter) {
+		var weForm = $Form(eForm);
+		var weHiddenElement = $Element(weForm.element(parameterName));
+		var mergedValue = this._mergeValues(parameterName, count, function(valueName){ return weForm.value(valueName); }, sDelimiter);
+		weHiddenElement.attr("value", mergedValue);
+	},
+	_mergeValues : function(parameterName, count , fGetter, sDelimiter) {
+		var valueNames = [];
+		for ( var i=0 ; i<count ; i++) {
+			valueNames.push(parameterName+"_"+(i+1)); 
+		}
+		var mergedValue = "";
+		$A(valueNames).forEach(function(valueName, index, wArray) {
+			var appendedValue = fGetter(valueName)||"";
+			if ( appendedValue != "") {
+				mergedValue = mergedValue + fGetter(valueName)||"";
+				if ( sDelimiter && index < wArray.length-1 ) {
+					mergedValue+=sDelimiter;
+				}
+			}
+		});
+		return mergedValue;
+	},
+	/**
+	 * 여러 필드의 값을 하나의 field 로 모아주는 함수
+	 * 
+	 * 입력 oObject 가 form object 이면 <input type="hidden" > 을 만들어 append 하고 merge 된 값을 입력
+	 * 입력 oObject 가 form object 아니면 해당 파라미터에 merge 된 값을 입력
+	 * 
+	 * merge 시 선택되는 필드명은 주어진 (필드명_{번호})로 찾는다.
+	 * 번호는 1부터 시작
+	 * 
+	 * ex) 우편번호 
+	 * parameterName = zipCode 이면
+	 * 앞3자리 = zipCode_1
+	 * 뒤3자리 = zipCode_2
+	 * 
+	 * ex) 전화번호
+	 * parameterName = telNo1
+	 * 앞번호 = telNo1_1
+	 * 중간번호 = telNo1_2
+	 * 뒷번호 = telNo1_3
+	 * 
+	 * @param oObject merge 를 진행하고자 하는 form Object 또는 request paremter Object 
+	 * @param parameterName 설정 파라미터명
+	 * @param count Merge 대상 개수
+	 */
+	mergeValue : function(oObject, parameterName, count, sDelimiter) {
+		if ( oObject.tagName && oObject.tagName.toLowerCase() == "form" ) {
+			var eForm= oObject;
+			var eHiddenElement = this._appendHiddenElement(eForm, parameterName);
+			this._mergeValuesIntoElement(eForm, parameterName, count, sDelimiter);
+		} else { 
+			var htParameter = oObject;
+			htParameter[parameterName] = this._mergeValues(parameterName, count, function(valueName) { 
+				return htParameter[valueName]||""; 
+			}, sDelimiter);
+		}
+	},
+	"":""
+}, true);

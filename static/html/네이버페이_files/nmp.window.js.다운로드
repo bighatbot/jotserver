@@ -1,0 +1,202 @@
+nmp.createModule("nmp.window", {
+	_htResizeData : {},
+	_oNavigator : jindo.$Agent().navigator(),
+
+	resizeWindow : function(htSize){
+		htSize = htSize || {
+			"nWidth" : 0,
+			"nHeight" : 0,
+			"nMaxWidth" : 0,
+			"nMaxHeight" : 0
+		};
+		var htScrollBar = this._getScrollBarUsed();
+		this._htResizeData = {
+			"bUseScrollBarX" : htScrollBar.bUseScrollBarX,
+			"bUseScrollBarY" : htScrollBar.bUseScrollBarY,
+			"bResizeFlag" : false,
+			"nResizeCount" : 0,
+			"nResizeTimer" : 0,
+            "nResizeLimit" : 1
+		}
+
+		if(this._oNavigator.firefox){
+			window.sizeToContent();
+			if(htSize.nWidth || htSize.nHeight || htSize.nMaxWidth || htSize.nMaxHeight){
+				this._setWindowSize(htSize.nWidth, htSize.nHeight, htSize.nMaxWidth, htSize.nMaxHeight);
+			}
+		}else if(this._oNavigator.safari){
+			this._htResizeData.bResizeFlag = true;
+			var wfResize = jindo.$Fn(function(){
+				if(this._htResizeData.bResizeFlag){
+					this._htResizeData.bResizeFlag = false;
+					wfResize.detach(window, "resize");
+					this._setWindowSize(htSize.nWidth, htSize.nHeight, htSize.nMaxWidth, htSize.nMaxHeight);
+				}
+			},this).attach(window, "resize");
+			jindo.$Window().resizeTo(0,0);
+		}else{
+            $Fn(function(){
+			    this._setWindowSize(htSize.nWidth, htSize.nHeight, htSize.nMaxWidth, htSize.nMaxHeight);
+            }, this).delay(0);
+		}
+	},
+
+	_getScrollBarUsed : function(){
+		var htResult = {
+			"bUseScrollBarX" : true,
+			"bUseScrollBarY" : true
+		};
+		//if(this._oNavigator.ie || this._oNavigator.firefox){
+			var welMeasureX = jindo.$Element(document.body).prepend(jindo.$("<div style='width:9999px;height:1px;position:absolute;top:-1px;left:0px;'></div>"));
+			var welMeasureY = jindo.$Element(document.body).prepend(jindo.$("<div style='height:9999px;width:1px;position:absolute;top:0px;left:-1px;'></div>"));
+
+			htResult = {
+				"bUseScrollBarX" : this._oNavigator.ie && this._oNavigator.version == 7 ? true : ((typeof(window.innerHeight) != "undefined" ? window.innerHeight : document.documentElement.offsetHeight) - document.documentElement.clientHeight) >= 17,
+				"bUseScrollBarY" : this._oNavigator.ie && this._oNavigator.version == 7 ? true : ((typeof(window.innerWidth) != "undefined" ? window.innerWidth : document.documentElement.offsetWidth) - document.documentElement.clientWidth) >= 17
+			}
+            //console.log(htResult.bUseScrollBarX, htResult.bUseScrollBarY, window.innerWidth, window.innerHeight, document.documentElement.offsetWidth, document.documentElement.offsetHeight, document.documentElement.clientWidth, document.documentElement.clientHeight)
+			//alert(document.documentElement.offsetHeight+" : "+document.documentElement.clientHeight)
+			//alert(htResult.bUseScrollBarX+" : "+htResult.bUseScrollBarY)
+			welMeasureX.leave();
+			welMeasureY.leave();
+		//}
+
+		return htResult;
+	},
+
+	_checkWindowPosition : function(nTargetWidth, nTargetHeight, bOverflowX, bOverflowY, nStatusBarHeight){
+		if(this._oNavigator.ie){
+			var nWindowBorder = 8;
+			var nWindowTop = window.screenTop > window.screen.availHeight ? window.screenTop - window.screen.availHeight : window.screenTop;
+			var nWindowLeft = window.screenLeft > window.screen.availWidth ? window.screenLeft - window.screen.availWidth : window.screenLeft;
+			var nOverflowWindowHeight = nWindowTop > 0 ? Math.min(window.screen.availHeight - (nWindowTop + nTargetHeight + (bOverflowX ? 17 : 0) + nWindowBorder + nStatusBarHeight), 0) : -Math.min(nWindowTop, 0);
+			var nOverflowWindowWidth = nWindowLeft > 0 ? Math.min(window.screen.availWidth - (nWindowLeft + nTargetWidth + (bOverflowY ? 17 : 0) + nWindowBorder), 0) : -Math.min(nWindowLeft, 0);
+
+			if(!(nOverflowWindowHeight == 0 && nOverflowWindowWidth == 0)){
+				// 창 크기가 500, 500이고 하단에 경계선에 걸려 있을 때 moveBy를 사용하면 파라미터에 상관없이
+				// 해당 팝업창을 보여줄 수 있는 만큼 이동하게 된다.
+				jindo.$Window().moveBy(nOverflowWindowWidth, nOverflowWindowHeight);
+			}
+
+			return {
+				"nMoveX" : nOverflowWindowWidth,
+				"nMoveY" : nOverflowWindowHeight
+			}
+		}
+	},
+
+	_checkWindowSize : function(nTargetWidth, nTargetHeight, nMaxWidth, nMaxHeight){
+		if(this._oNavigator.chrome || (this._oNavigator.ie && this._oNavigator.version == 7)){
+			// 크롬인 경우 일시적으로 클라이언트 사이즈 계산이 올바르지 않아 리사이징이 안되는 경우를 위해
+			// 특정 시간 이후에 변경된 크기를 비교하여 다시 시도한다.
+			clearTimeout(this._htResizeData.nResizeTimer);
+			this._htResizeData.nResizeTimer = setTimeout(jindo.$Fn(function(){
+				var htResizedClientSize = jindo.$Document().clientSize();
+				//document.title = htResizedClientSize.width+","+nTargetWidth+" : "+htResizedClientSize.height+","+nTargetHeight
+				if(this._htResizeData.nResizeCount < this._htResizeData.nResizeLimit && (htResizedClientSize.width != nTargetWidth || htResizedClientSize.height != nTargetHeight)){
+					this._htResizeData.nResizeCount++;
+					this._setWindowSize(nTargetWidth, nTargetHeight, nMaxWidth, nMaxHeight);
+				}
+			}, this).bind(), 300)
+		}else{
+			setTimeout(jindo.$Fn(function(){
+				var htResizedClientSize = jindo.$Document().clientSize();
+				//document.title = htResizedClientSize.width+","+nTargetWidth+" : "+htResizedClientSize.height+","+nTargetHeight
+			}, this).bind(), 50);
+		}
+	},
+
+	_checkMaxTargetHeight : function(nTargetHeight, nStatusBarHeight, bOverflowX){
+		if(this._oNavigator.ie){
+			var nWindowTopHeight = this._oNavigator.version == 7 ? 52 : 59;
+			var nWindowBorder = 8;
+			var nContentOuterHeight = nWindowTopHeight + (bOverflowX ? 17 : 0) + nStatusBarHeight + nWindowBorder;
+			return nTargetHeight + nContentOuterHeight > window.screen.availHeight ? window.screen.availHeight - nContentOuterHeight : nTargetHeight;
+		}
+
+		return nTargetHeight;
+	},
+
+	_getStatusBarHeight : function(nClientHeight, bOverflowX){
+		var nWindowBorder = 8;
+		var bIE9StatusBar = this._oNavigator.ie && this._oNavigator.version >= 9 && window.outerHeight && (window.screenTop - window.screenY + nClientHeight + (bOverflowX ? 17 : 0) + nWindowBorder) == window.outerHeight ? false : true;
+		return this._oNavigator.version == 8 ? 26 : (this._oNavigator.version == 7 || bIE9StatusBar ? 22 : 0);
+	},
+
+	_setWindowSize : function(nWidth, nHeight, nMaxWidth, nMaxHeight){
+		try{
+			document.getElementsByTagName("html")[0].style.width = "0px";
+			var htScrollSize = jindo.$Document().scrollSize();
+			var htClientSize = jindo.$Document().clientSize();
+			var elTarget = this._oNavigator.ie ? document.body : document.documentElement;
+			var nContentWidth = elTarget.scrollWidth;
+			var nContentHeight = elTarget.scrollHeight;
+			var nTargetWidth = Math.min(nWidth || nContentWidth, nMaxWidth || window.screen.availWidth);
+			var nTargetHeight = Math.min(nHeight || nContentHeight, nMaxHeight || window.screen.availHeight) + 1;
+			var bCurrentOverflowX = this._htResizeData.bUseScrollBarX && htScrollSize.width > htClientSize.width;
+			var bCurrentOverflowY = this._htResizeData.bUseScrollBarY && htScrollSize.height > htClientSize.height;
+			var bOverflowX = this._htResizeData.bUseScrollBarX && nContentWidth != nTargetWidth && nContentWidth - 17 > nTargetWidth ? true : false;
+			var bOverflowY = this._htResizeData.bUseScrollBarY && nContentHeight != nTargetHeight && nContentHeight - 17 > nTargetHeight ? true : false;
+			var nStatusBarHeight = this._getStatusBarHeight(htClientSize.height, bOverflowX)
+			nTargetHeight = this._checkMaxTargetHeight(nTargetHeight, nStatusBarHeight, bOverflowX);
+			bOverflowY = this._htResizeData.bUseScrollBarY && nContentHeight != nTargetHeight && nContentHeight - 17 > nTargetHeight ? true : false;
+			var nDifferentWidth = nTargetWidth - htClientSize.width;
+			var nDifferentHeight = nTargetHeight - htClientSize.height;
+			var htMovedPosition = this._checkWindowPosition(nTargetWidth, nTargetHeight, bOverflowX, bOverflowY, nStatusBarHeight);
+
+            //console.log(nTargetWidth, nTargetHeight, nContentWidth, nContentHeight, htScrollSize, htClientSize, nDifferentWidth, nDifferentHeight);
+            //console.log(bCurrentOverflowX, bCurrentOverflowY, bOverflowX, bOverflowY, this._htResizeData.bUseScrollBarX, this._htResizeData.bUseScrollBarY);
+
+			// 사파리인 경우
+			if(this._oNavigator.safari){
+				if(bOverflowX == true && bOverflowY == false){
+					nDifferentHeight += 17;
+				}else if(bOverflowX == false && bOverflowY == true){
+					nDifferentWidth += 17;
+				}
+			}else{
+				// 수평 스크롤바의 노출 여부에 따라 창 높이를 변경
+				// 수평 스크롤바가 있다가 리사이징되면서 없어지는 경우
+				if(bCurrentOverflowX != bOverflowX && bOverflowX == false){
+					nDifferentHeight -= 17;
+				// 수평 스크롤바가 없다가 리사이징되면서 생기는 경우
+				}else if(bCurrentOverflowX != bOverflowX && bOverflowX == true){
+					nDifferentHeight += 17;
+				}
+
+				// 수직 스크롤바의 노출 여부에 따라 창 넓이를 변경
+				if(!(this._oNavigator.ie && this._oNavigator.version == 7)){
+					// 수직 스크롤바가 있다가 리사이징되면서 없어지는 경우
+					if(bCurrentOverflowY != bOverflowY && bOverflowY == false){
+						nDifferentWidth -= 17;
+					// 수직 스크롤바가 없다가 리사이징되면서 생기는 경우
+					}else if(bCurrentOverflowY != bOverflowY && bOverflowY == true){
+						nDifferentWidth += 17;
+					}
+				}
+			}
+
+			// 계산된 결과에 따라 창의 크기를 변경한다.
+			jindo.$Window().resizeBy(nDifferentWidth, nDifferentHeight)
+
+			// IE와 크롬에서 컨텐츠의 넓이를 계산하기 위해 변경한 스타일을 초기화한다.
+			document.getElementsByTagName("html")[0].style.width = "";
+
+			// 창의 크기가 정상적으로 변경되었는지 확인하고, 그렇지 않을 경우 다시 시도한다.
+			this._checkWindowSize(nTargetWidth, nTargetHeight, nMaxWidth, nMaxHeight);
+		}catch(e){
+			//throw(e)
+			setTimeout(jindo.$Fn(this._setWindowSize, this).bind(nWidth, nHeight, nMaxWidth, nMaxHeight), 100);
+		}
+	},
+
+
+	/**
+	 * 확인 창 없이 창 닫는 함수
+	 */
+	closeWindow : function(){
+		self.window.open('','_self','');
+		self.opener = self;
+		window.close();
+	}
+}, true);
