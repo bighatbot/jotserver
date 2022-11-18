@@ -1,4 +1,3 @@
 # jotserver
 
-npm i
-\nnode 1.js
+node 1
